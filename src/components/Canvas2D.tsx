@@ -17,6 +17,8 @@ import {
   drawGrid,
   eraserRadius,
   findItem,
+  getSelectionBounds,
+  hitResizeHandle,
   hitShape,
   hitTest,
   itemBounds,
@@ -215,15 +217,35 @@ export default function Canvas2D() {
     ctx.translate(w / 2 - st.camera.x * zoom, h / 2 - st.camera.y * zoom)
     ctx.scale(zoom, zoom)
     if (st.selected.length) {
-      ctx.setLineDash([6 / zoom, 5 / zoom])
-      ctx.strokeStyle = '#52525b'
-      ctx.lineWidth = 1.5 / zoom
-      for (const id of st.selected) {
-        const ref = findItem(st.doc, id)
-        if (!ref) continue
-        const b = itemBounds(ref.item)
-        const pad = 6 / zoom
-        ctx.strokeRect(b.x0 - pad, b.y0 - pad, b.x1 - b.x0 + pad * 2, b.y1 - b.y0 + pad * 2)
+      const selBounds = getSelectionBounds(st.doc, st.selected, zoom)
+      if (selBounds) {
+        ctx.setLineDash([6 / zoom, 5 / zoom])
+        ctx.strokeStyle = '#52525b'
+        ctx.lineWidth = 1.5 / zoom
+        ctx.strokeRect(selBounds.x0, selBounds.y0, selBounds.x1 - selBounds.x0, selBounds.y1 - selBounds.y0)
+
+        const handleSize = 10 / zoom
+        const hs = handleSize / 2
+        const cx = (selBounds.x0 + selBounds.x1) / 2
+        const cy = (selBounds.y0 + selBounds.y1) / 2
+        const handlePts = [
+          { x: selBounds.x0, y: selBounds.y0 },
+          { x: cx, y: selBounds.y0 },
+          { x: selBounds.x1, y: selBounds.y0 },
+          { x: selBounds.x0, y: cy },
+          { x: selBounds.x1, y: cy },
+          { x: selBounds.x0, y: selBounds.y1 },
+          { x: cx, y: selBounds.y1 },
+          { x: selBounds.x1, y: selBounds.y1 },
+        ]
+        for (const hp of handlePts) {
+          ctx.fillStyle = '#ffffff'
+          ctx.fillRect(hp.x - hs, hp.y - hs, handleSize, handleSize)
+          ctx.strokeStyle = '#52525b'
+          ctx.lineWidth = 1.5 / zoom
+          ctx.setLineDash([])
+          ctx.strokeRect(hp.x - hs, hp.y - hs, handleSize, handleSize)
+        }
       }
     }
     ctx.restore()
@@ -649,6 +671,21 @@ export default function Canvas2D() {
     }
     if (s.tool === 'select') {
       const hit = hitTest(w, s.doc, s.camera.zoom)
+      const selBounds = getSelectionBounds(s.doc, s.selected, s.camera.zoom)
+      const resizeHandle = selBounds ? hitResizeHandle(w, selBounds, s.camera.zoom) : null
+
+      if (resizeHandle && s.selected.length) {
+        interactionRef.current = {
+          type: 'resize',
+          start: w,
+          startBounds: { ...selBounds! },
+          handle: resizeHandle,
+        }
+        gestureLayerIdRef.current = null
+        suppressInvalidationRef.current = true
+        return
+      }
+
       if (!hit) {
         s.select([])
         interactionRef.current = { type: 'pan', camStart: s.camera, start: { x: e.clientX, y: e.clientY } }
@@ -734,6 +771,53 @@ export default function Canvas2D() {
       eraseAt(w)
       return
     }
+    if (it?.type === 'resize') {
+      const dx = w.x - it.start.x
+      const dy = w.y - it.start.y
+      const b = it.startBounds
+      const newBounds = { x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }
+      const h = it.handle
+      if (h.includes('e')) newBounds.x1 = b.x1 + dx
+      if (h.includes('w')) newBounds.x0 = b.x0 + dx
+      if (h.includes('s')) newBounds.y1 = b.y1 + dy
+      if (h.includes('n')) newBounds.y0 = b.y0 + dy
+      const scaleX = (newBounds.x1 - newBounds.x0) / (b.x1 - b.x0)
+      const scaleY = (newBounds.y1 - newBounds.y0) / (b.y1 - b.y0)
+      const offsetX = newBounds.x0 - b.x0
+      const offsetY = newBounds.y0 - b.y0
+      const items = s.selected.map((id) => findItem(s.doc, id)).filter((x): x is ItemRef => x !== null)
+      for (const ref of items) {
+        const item = ref.item
+        if (ref.kind === 'shape') {
+          const sh = item as Shape
+          yUpdateItem('shapes', sh.id, {
+            x0: sh.x0 * scaleX + offsetX,
+            y0: sh.y0 * scaleY + offsetY,
+            x1: sh.x1 * scaleX + offsetX,
+            y1: sh.y1 * scaleY + offsetY,
+          })
+        } else if (ref.kind === 'text') {
+          const ti = item as TextItem
+          yUpdateItem('texts', ti.id, {
+            x: ti.x * scaleX + offsetX,
+            y: ti.y * scaleY + offsetY,
+            size: Math.max(8, ti.size * Math.min(scaleX, scaleY)),
+          })
+        } else {
+          const st = item as Stroke
+          const pts = st.points.map((p) => ({
+            ...p,
+            x: p.x * scaleX + offsetX,
+            y: p.y * scaleY + offsetY,
+          }))
+          yUpdateStrokePoints(st.id, pts)
+          yUpdateItem('strokes', st.id, {
+            size: Math.max(1, st.size * Math.min(scaleX, scaleY)),
+          })
+        }
+      }
+      return
+    }
     if (it?.type === 'move') {
       const dx = w.x - it.start.x
       const dy = w.y - it.start.y
@@ -766,7 +850,7 @@ export default function Canvas2D() {
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointersRef.current.delete(e.pointerId)
     const it = interactionRef.current
-    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'erase' || it?.type === 'move') {
+    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'erase' || it?.type === 'move' || it?.type === 'resize') {
       if (it.type === 'shape') {
         if (Math.abs(it.end.x - it.start.x) < 3 && Math.abs(it.end.y - it.start.y) < 3) {
           yDeleteItems('shapes', [it.id])
@@ -788,7 +872,7 @@ export default function Canvas2D() {
     const it = interactionRef.current
     suppressInvalidationRef.current = false
     gestureLayerIdRef.current = null
-    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'move') {
+    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'move' || it?.type === 'resize') {
       const s = useStore.getState()
       const eff = (l?: string) => (l && s.doc.layers.some((x) => x.id === l) ? l : DEFAULT_LAYER_ID)
       const layerIds = new Set<string>()
@@ -797,8 +881,13 @@ export default function Canvas2D() {
       } else if (it.type === 'shape') {
         const sh = s.doc.shapes.find((x) => x.id === it.id)
         if (sh) layerIds.add(eff(sh.layer))
-      } else {
+      } else if (it.type === 'move') {
         for (const ref of it.items) layerIds.add(eff((ref.item as { layer?: string }).layer))
+      } else if (it.type === 'resize') {
+        for (const id of s.selected) {
+          const ref = findItem(s.doc, id)
+          if (ref) layerIds.add(eff((ref.item as { layer?: string }).layer))
+        }
       }
       for (const id of layerIds) {
         dirtyLayersRef.current.add(id)
@@ -847,7 +936,7 @@ export default function Canvas2D() {
 
   const cursor =
     tool === 'select'
-      ? 'default'
+      ? selected.length ? 'crosshair' : 'default'
       : tool === 'hand'
       ? 'grab'
       : tool === 'text'

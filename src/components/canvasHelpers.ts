@@ -9,8 +9,11 @@ export type Interaction =
   | { type: 'shape'; id: string; start: Pt; end: Pt }
   | { type: 'erase'; r: number; path: Pt[]; last: number }
   | { type: 'move'; start: Pt; items: ItemRef[]; dx: number; dy: number }
+  | { type: 'resize'; start: Pt; startBounds: { x0: number; y0: number; x1: number; y1: number }; handle: ResizeHandle }
   | { type: 'pan'; camStart: { x: number; y: number; zoom: number }; start: Pt }
   | { type: 'pinch'; prevMid: Pt; prevDist: number; camStart: { x: number; y: number; zoom: number } }
+
+export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e'
 
 export interface LayerCache {
   canvas: HTMLCanvasElement
@@ -319,4 +322,61 @@ export function hitShape(w: Pt, doc: Doc, zoom: number): Shape | null {
     if (shapeDist(w, sh, doc) <= t) return sh
   }
   return null
+}
+
+export function getSelectionBounds(doc: Doc, selected: string[], zoom: number): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (!selected.length) return null
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+  for (const id of selected) {
+    const ref = findItem(doc, id)
+    if (!ref) continue
+    const b = itemBounds(ref.item)
+    if (b.x0 < x0) x0 = b.x0
+    if (b.y0 < y0) y0 = b.y0
+    if (b.x1 > x1) x1 = b.x1
+    if (b.y1 > y1) y1 = b.y1
+  }
+  if (!isFinite(x0)) return null
+  const pad = 6 / zoom
+  return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad }
+}
+
+export function hitResizeHandle(w: Pt, bounds: { x0: number; y0: number; x1: number; y1: number }, zoom: number): ResizeHandle | null {
+  const handleSize = 10 / zoom
+  const hs = handleSize / 2
+  const cx = (bounds.x0 + bounds.x1) / 2
+  const cy = (bounds.y0 + bounds.y1) / 2
+
+  const handles: { h: ResizeHandle; x: number; y: number }[] = [
+    { h: 'nw', x: bounds.x0, y: bounds.y0 },
+    { h: 'n', x: cx, y: bounds.y0 },
+    { h: 'ne', x: bounds.x1, y: bounds.y0 },
+    { h: 'w', x: bounds.x0, y: cy },
+    { h: 'e', x: bounds.x1, y: cy },
+    { h: 'sw', x: bounds.x0, y: bounds.y1 },
+    { h: 's', x: cx, y: bounds.y1 },
+    { h: 'se', x: bounds.x1, y: bounds.y1 },
+  ]
+
+  for (const h of handles) {
+    if (w.x >= h.x - hs && w.x <= h.x + hs && w.y >= h.y - hs && w.y <= h.y + hs) {
+      return h.h
+    }
+  }
+  return null
+}
+
+const RESIZE_CURSORS: Record<ResizeHandle, string> = {
+  nw: 'nwse-resize',
+  n: 'ns-resize',
+  ne: 'nesw-resize',
+  w: 'ew-resize',
+  e: 'ew-resize',
+  sw: 'nesw-resize',
+  s: 'ns-resize',
+  se: 'nwse-resize',
+}
+
+export function getResizeCursor(h: ResizeHandle): string {
+  return RESIZE_CURSORS[h]
 }
