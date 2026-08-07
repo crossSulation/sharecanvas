@@ -1,0 +1,41 @@
+{
+  "name": "sharecanvas",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "基于画布的共享创作涂鸦：2D 涂鸦 + 3D 草稿 + 好友实时协作",
+  "scripts": {
+    "dev": "vite",
+    "dev:all": "node dev.mjs",
+    "build": "tsc --noEmit && vite build",
+    "test:e2e": "node --env-file-if-exists=.env scripts/e2e.mjs",
+    "preview": "vite preview",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "server": "node --env-file-if-exists=.env server/index.js"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.0.7",
+    "@react-three/fiber": "^9.1.2",
+    "perfect-freehand": "^1.2.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "three": "^0.178.0",
+    "ws": "^8.18.0",
+    "y-indexeddb": "^9.0.12",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.32",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@types/three": "^0.178.0",
+    "@types/ws": "^8.5.13",
+    "@vitejs/plugin-react": "^5.0.0",
+    "puppeteer-core": "^25.5.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.0.0"
+  }
+}
