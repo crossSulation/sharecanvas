@@ -378,6 +378,56 @@ async function runTests(browser) {
     await wait(200)
   })
 
+  await test('刷新后可在擦除区域继续绘制（序号续接）', async () => {
+    const blueCount = () =>
+      page.evaluate(() => {
+        const c = document.querySelector('canvas')
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        let count = 0
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] < 130 && d[i + 1] > 150 && d[i + 2] > 200 && d[i + 3] > 200) count++
+        }
+        return count
+      })
+
+    // 红色粗线
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(
+        (b) => b.style.background === 'rgb(248, 113, 113)',
+      )
+      if (btn) btn.click()
+    })
+    await wait(200)
+    await clickTool(2) // pen
+    await drag(300, 500, 600, 500)
+    await wait(400)
+
+    // 擦掉中间一段
+    await clickTool(4) // eraser
+    await drag(400, 500, 500, 500)
+    await wait(400)
+
+    // 蓝色线画在擦除区域（同会话应可见）
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(
+        (b) => b.style.background === 'rgb(56, 189, 248)',
+      )
+      if (btn) btn.click()
+    })
+    await wait(200)
+    await clickTool(2)
+    await drag(420, 500, 480, 500)
+    await wait(400)
+    const blue1 = await blueCount()
+    assert(blue1 > 10, `同会话擦除区域新画内容应可见，实际 ${blue1}`)
+
+    // 刷新后仍可绘制在擦除区（序号必须从文档最大值续起）
+    await page.reload({ waitUntil: 'networkidle0' })
+    await wait(2200)
+    const blue2 = await blueCount()
+    assert(blue2 > 10, `刷新后擦除区域应仍可继续绘制，实际 ${blue2}`)
+  })
+
   await test('数位板笔：压感写入笔迹并显示已连接提示', async () => {
     await clickTool(2)
     const cdp = await page.createCDPSession()

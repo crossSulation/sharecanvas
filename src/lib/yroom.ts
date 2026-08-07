@@ -1,6 +1,7 @@
 import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import type { Doc, EraseCircle, LayerInfo, Obj3D, Pt, Shape, Stroke, TextItem } from '../types'
+import { initSeq } from './seq'
 import { loadDoc } from './storage'
 
 export const yDoc = new Y.Doc()
@@ -31,6 +32,19 @@ export const undoManager = new Y.UndoManager(
   [yStrokes, yShapes, yTexts, yObjects, yEraser, yLayers],
   { trackedOrigins: new Set([LOCAL]), captureTimeout: 800 },
 )
+
+// 把“创建序号”计数器续到文档现有最大值，避免加载/远端同步后
+// 新内容的序号小于旧擦除洞，导致擦除区无法再绘制
+export function refreshSeqCounter(): void {
+  let max = 0
+  for (const arr of [yStrokes, yShapes, yTexts, yObjects, yEraser]) {
+    for (const m of arr.toArray()) {
+      const v = m.get('seq')
+      if (typeof v === 'number' && v > max) max = v
+    }
+  }
+  initSeq(max)
+}
 
 export function ensureDefaultLayer(): void {
   if (yLayers.length > 0) return
@@ -237,4 +251,10 @@ export async function initPersistence(): Promise<void> {
     await persistence.whenSynced.catch(() => {})
   }
   ensureDefaultLayer()
+  refreshSeqCounter()
 }
+
+// 远端同步可能带来更大的序号，收到非本地更新时续接计数器
+yDoc.on('update', (_update, origin) => {
+  if (origin !== LOCAL) refreshSeqCounter()
+})
