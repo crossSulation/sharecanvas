@@ -12,6 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:e2e": "node --env-file-if-exists=.env scripts/e2e.mjs",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
@@ -38,15 +40,18 @@
     "@types/three": "^0.178.0",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^5.0.0",
+    "@vitest/ui": "^4.1.10",
     "eslint": "^10.8.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
+    "happy-dom": "^20.11.1",
     "prettier": "^3.9.6",
     "puppeteer-core": "^25.5.0",
     "tailwindcss": "^4.1.0",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.66.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^4.1.10"
   }
 }
