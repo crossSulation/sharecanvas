@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { collab } from '../lib/collab'
 import { createId } from '../lib/id'
 import { nextSeq } from '../lib/seq'
+import { tickFps, recordDrawTime } from '../lib/perf'
 import { DEFAULT_LAYER_ID, yDeleteItems, yPush, yUpdateItem, yUpdateStrokePoints } from '../lib/yroom'
 import {
   shapeCenter,
@@ -92,6 +93,8 @@ export default function Canvas2D() {
   }, [pumpRaster])
 
   const draw = useCallback(() => {
+    const drawStart = performance.now()
+    tickFps()
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
@@ -256,6 +259,7 @@ export default function Canvas2D() {
       ctx.fillStyle = '#fff'
       ctx.fillText(u.name, sp.x - tw / 2, sp.y - 14)
     }
+    recordDrawTime(performance.now() - drawStart)
   }, [toScreen, requestRaster])
 
   useEffect(() => {

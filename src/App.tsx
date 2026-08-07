@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import TopBar from './components/TopBar'
 import Toolbar from './components/Toolbar'
 import Canvas2D from './components/Canvas2D'
@@ -6,12 +6,16 @@ import View3D from './components/View3D'
 import ShareDialog from './components/ShareDialog'
 import Hint from './components/Hint'
 import LayerPanel from './components/LayerPanel'
+import PerfOverlay from './components/PerfOverlay'
 import { collab } from './lib/collab'
 import { snapshotHashToDoc } from './lib/serialize'
 import { useStore } from './store'
 
 export default function App() {
   const mode = useStore((s) => s.mode)
+  const [debug] = useState(
+    () => new URLSearchParams(window.location.search).has('debug'),
+  )
 
   useEffect(() => {
     const hash = window.location.hash
@@ -45,6 +49,7 @@ export default function App() {
         )}
         {mode !== '3d' && <Toolbar />}
         <LayerPanel />
+        {debug && <PerfOverlay />}
         <Hint />
         <ShareDialog />
       </div>
