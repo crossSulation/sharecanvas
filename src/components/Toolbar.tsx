@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { PALETTE, useStore } from '../store'
 import type { Tool } from '../types'
 
@@ -156,7 +156,6 @@ const BRUSH_OPTIONS = [
   { id: 'pencil', label: '铅笔', w: 1.5, op: 0.6 },
 ] as const
 
-// 分组顺序与 TOOLS 数组完全一致（DOM 顺序不变，测试索引不受影响）
 const TOOL_GROUPS: { label: string; ids: Tool[] }[] = [
   { label: '选择', ids: ['select', 'hand'] },
   { label: '绘制', ids: ['pen', 'highlighter', 'eraser', 'text'] },
@@ -168,7 +167,25 @@ const toolById = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<
   (typeof TOOLS)[number]
 >
 
-export default function Toolbar() {
+function ToolButton({ id, tool, setTool }: { id: Tool; tool: Tool; setTool: (t: Tool) => void }) {
+  const t = toolById[id]
+  return (
+    <button
+      key={id}
+      title={t.label}
+      onClick={() => setTool(id)}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+        tool === id
+          ? 'bg-zinc-900 text-white'
+          : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+      }`}
+    >
+      {t.icon}
+    </button>
+  )
+}
+
+function DesktopToolbar() {
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const color = useStore((s) => s.color)
@@ -179,29 +196,15 @@ export default function Toolbar() {
   const setBrushStyle = useStore((s) => s.setBrushStyle)
 
   return (
-    <div className="no-select pointer-events-none absolute bottom-5 left-4 z-20 flex w-fit flex-col items-start gap-2">
+    <>
       <div className="pointer-events-auto flex flex-col items-center gap-0.5 rounded-2xl border border-zinc-200 bg-white/90 p-1.5 shadow-lg shadow-zinc-900/5 backdrop-blur">
         <div className="scroll-thin flex max-h-[min(52vh,460px)] flex-col items-center gap-1 overflow-y-auto pr-0.5">
           {TOOL_GROUPS.map((g) => (
             <div key={g.label} className="flex flex-col items-center gap-0.5">
               <span className="text-[9px] leading-3 text-zinc-400">{g.label}</span>
-              {g.ids.map((id) => {
-                const t = toolById[id]
-                return (
-                  <button
-                    key={id}
-                    title={t.label}
-                    onClick={() => setTool(id)}
-                    className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
-                      tool === id
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
-                    }`}
-                  >
-                    {t.icon}
-                  </button>
-                )
-              })}
+              {g.ids.map((id) => (
+                <ToolButton key={id} id={id} tool={tool} setTool={setTool} />
+              ))}
             </div>
           ))}
         </div>
@@ -270,6 +273,108 @@ export default function Toolbar() {
           title="笔刷大小"
         />
       </div>
+    </>
+  )
+}
+
+function MobileToolbar() {
+  const tool = useStore((s) => s.tool)
+  const setTool = useStore((s) => s.setTool)
+  const color = useStore((s) => s.color)
+  const setColor = useStore((s) => s.setColor)
+  const size = useStore((s) => s.size)
+  const setSize = useStore((s) => s.setSize)
+  const brushStyle = useStore((s) => s.brushStyle)
+  const setBrushStyle = useStore((s) => s.setBrushStyle)
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {expanded && (
+        <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-2 shadow-lg backdrop-blur">
+          <div className="flex items-center gap-0.5">
+            {PALETTE.map((c) => (
+              <button
+                key={c}
+                title={c}
+                onClick={() => setColor(c)}
+                className={`h-6 w-6 shrink-0 rounded-md border transition-transform ${
+                  color === c ? 'border-zinc-900 ring-2 ring-zinc-900/30' : 'border-zinc-300'
+                }`}
+                style={{ background: c }}
+              />
+            ))}
+            <label className="relative flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-400 text-[10px] text-zinc-500">
+              <span>＋</span>
+              <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
+            </label>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-zinc-400">笔型</span>
+            {BRUSH_OPTIONS.map((b) => (
+              <button
+                key={b.id}
+                data-testid={`brush-option-${b.id}`}
+                title={b.label}
+                onClick={() => setBrushStyle(b.id)}
+                className={`flex h-5 w-8 items-center justify-center rounded ${
+                  brushStyle === b.id ? 'bg-zinc-900' : 'bg-zinc-100 hover:bg-zinc-200'
+                }`}
+              >
+                <svg width="16" height="8" viewBox="0 0 16 8">
+                  <line x1="1" y1="4" x2="15" y2="4" stroke={brushStyle === b.id ? '#ffffff' : '#18181b'} strokeWidth={b.w} strokeLinecap="round" opacity={b.op} />
+                </svg>
+              </button>
+            ))}
+          </div>
+          <input type="range" min={2} max={40} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-16" title="笔刷大小" />
+        </div>
+      )}
+      <div className="pointer-events-auto flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1 shadow-lg backdrop-blur overflow-x-auto">
+        {TOOLS.map((t) => (
+          <ToolButton key={t.id} id={t.id} tool={tool} setTool={setTool} />
+        ))}
+        <div className="mx-0.5 h-7 w-px bg-zinc-200" />
+        <button
+          title="更多选项"
+          onClick={() => setExpanded(!expanded)}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+            expanded ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+          }`}
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="5" r="1.5" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+            <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setIsMobile(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
+  return isMobile
+}
+
+export default function Toolbar() {
+  const isMobile = useIsMobile()
+
+  return (
+    <div className="no-select pointer-events-none z-20 flex w-fit flex-col items-start gap-2
+      fixed bottom-0 left-0 right-0 sm:bottom-5 sm:left-4 sm:right-auto
+      mx-2 mb-2 sm:mx-0 sm:mb-0
+      max-w-[calc(100vw-1rem)] sm:max-w-none
+    ">
+      {isMobile ? <MobileToolbar /> : <DesktopToolbar />}
     </div>
   )
 }
