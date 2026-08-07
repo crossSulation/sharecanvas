@@ -20,9 +20,9 @@
 - [x] M1: 移动端适配（响应式工具栏 + 手势优化）
 - [x] M2: 添加单元测试（vitest），覆盖 `lib/` 模块（34 tests）
 - [x] M3: 撤销管理器优化（captureTimeout 800ms → 200ms）
-- [ ] M4: Worker 池化（并行处理多图层）
-- [ ] M5: 服务端水平扩展（Redis Pub/Sub 或 y-redis 跨进程同步）
-- [ ] M6: 国际化 i18n（`react-i18next` 多语言支持）
+- [x] M4: Worker 池化（并行处理多图层）
+- [x] M5: 服务端水平扩展（Redis Pub/Sub 或 y-redis 跨进程同步）
+- [x] M6: 国际化 i18n（`react-i18next` 多语言支持）
 - [x] M7: 性能打点 + 帧率监控 + FPS overlay（`?debug` URL param）
 - [ ] M8: 3D 模型导入（glTF/OBJ）
 - [ ] M9: 图层混合模式（正片叠底/滤色等）
