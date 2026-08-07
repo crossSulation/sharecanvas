@@ -37,12 +37,12 @@ function Geometry({ obj }: { obj: Obj3D }) {
 }
 
 function TubeGeometry({ obj }: { obj: Obj3D }) {
-  const pts = obj.tubePoints ?? []
+  const pts = useMemo(() => obj.tubePoints ?? [], [obj.tubePoints])
   const curve = useMemo(() => {
     const vs = pts.map((p) => new THREE.Vector3(p[0], p[1], p[2]))
     if (vs.length < 2) vs.push(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0.1, 0, 0))
     return new THREE.CatmullRomCurve3(vs)
-  }, [obj])
+  }, [pts])
   return <tubeGeometry args={[curve, Math.min(160, Math.max(16, pts.length * 2)), obj.tubeRadius ?? 0.04, 10, false]} />
 }
 
