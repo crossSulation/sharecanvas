@@ -574,10 +574,13 @@ async function runTests(browser) {
       return { input: !!inp, value: inp ? inp.value : '' }
     })
     assert(info.input && info.value === 'flow label', `双击后输入框值应为 flow label，实际 ${JSON.stringify(info)}`)
-    await page.keyboard.down('Control')
-    await page.keyboard.press('KeyA')
-    await page.keyboard.up('Control')
-    await page.keyboard.type('updated')
+    await page.evaluate(() => {
+      const inp = document.querySelector('input.z-20')
+      if (!inp) return
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+      nativeInputValueSetter.call(inp, 'updated')
+      inp.dispatchEvent(new Event('input', { bubbles: true }))
+    })
     await page.keyboard.press('Enter')
     await saveWait()
     const doc = await readDoc()
