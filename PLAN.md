@@ -2,7 +2,7 @@
 
 ## 立即修复
 
-- [ ] F1: 提交 `package-lock.json` 未暂存的修改
+- [x] F1: 提交 `package-lock.json` 未暂存的修改
 - [x] F2: 配置 CI/CD (GitHub Actions)：lint → typecheck → build → e2e test
 - [x] F3: 添加 ESLint + Prettier 配置
 
