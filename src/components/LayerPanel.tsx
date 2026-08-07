@@ -1,4 +1,5 @@
 import { useStore } from '../store'
+import { useTranslation } from 'react-i18next'
 
 function Icon({ children }: { children: React.ReactNode }) {
   return (
@@ -18,6 +19,7 @@ function Icon({ children }: { children: React.ReactNode }) {
 }
 
 function LayerList() {
+  const { t } = useTranslation()
   const layers = useStore((s) => s.doc.layers)
   const activeLayerId = useStore((s) => s.activeLayerId)
   const setActiveLayer = useStore((s) => s.setActiveLayer)
@@ -44,7 +46,7 @@ function LayerList() {
             <div className="flex items-center gap-1">
               <button
                 data-testid="layer-visibility"
-                title={l.visible ? '隐藏图层' : '显示图层'}
+                title={l.visible ? t('layer.hide') : t('layer.show')}
                 onClick={(e) => {
                   e.stopPropagation()
                   setLayerVisible(l.id, !l.visible)
@@ -78,7 +80,7 @@ function LayerList() {
               />
               <button
                 data-testid="layer-lock"
-                title={l.locked ? '解锁图层' : '锁定图层（不可编辑）'}
+                title={l.locked ? t('layer.unlock') : t('layer.lock')}
                 onClick={(e) => {
                   e.stopPropagation()
                   setLayerLocked(l.id, !l.locked)
@@ -102,11 +104,11 @@ function LayerList() {
               </button>
               <button
                 data-testid="layer-delete"
-                title="删除图层（连同内容）"
+                title={t('layer.delete')}
                 disabled={layers.length <= 1}
                 onClick={(e) => {
                   e.stopPropagation()
-                  if (window.confirm('删除该图层会同时删除其内容，确定吗？')) removeLayer(l.id)
+                  if (window.confirm(t('actions.confirmDeleteLayer'))) removeLayer(l.id)
                 }}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-500 disabled:opacity-30"
               >
@@ -168,6 +170,7 @@ function LayerList() {
 }
 
 export default function LayerPanel() {
+  const { t } = useTranslation()
   const open = useStore((s) => s.layerPanelOpen)
   const setOpen = useStore((s) => s.setLayerPanelOpen)
   const addLayer = useStore((s) => s.addLayer)
@@ -180,12 +183,12 @@ export default function LayerPanel() {
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
     >
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-semibold text-zinc-800">图层</span>
+        <span className="text-xs font-semibold text-zinc-800">{t('app.layers')}</span>
         <div className="flex gap-1">
           <button
             data-testid="add-layer"
             onClick={addLayer}
-            title="新建图层"
+            title={t('app.addLayer')}
             className="flex h-6 w-6 items-center justify-center rounded-md bg-zinc-900 text-white hover:bg-zinc-700"
           >
             <Icon>
@@ -205,7 +208,7 @@ export default function LayerPanel() {
       <LayerList />
 
       <p className="mt-2 text-[10px] leading-relaxed text-zinc-400">
-        新内容绘制到当前选中层；隐藏/锁定的图层不可选中与编辑。
+        {t('app.layerHint')}
       </p>
     </div>
   )

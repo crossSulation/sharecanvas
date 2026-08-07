@@ -1,0 +1,72 @@
+{
+  "app": {
+    "title": "ShareCanvas",
+    "subtitle": "ShareCanvas · Doodle Together",
+    "share": "Share",
+    "layers": "Layers",
+    "addLayer": "New Layer",
+    "layerHint": "New content is drawn on the active layer. Hidden/locked layers cannot be selected or edited."
+  },
+  "tools": {
+    "select": "Select / Move",
+    "hand": "Hand (Pan Canvas)",
+    "pen": "Pen",
+    "highlighter": "Highlighter",
+    "eraser": "Eraser",
+    "text": "Text",
+    "rect": "Rectangle",
+    "roundrect": "Rounded Rectangle",
+    "ellipse": "Ellipse",
+    "diamond": "Diamond",
+    "parallelogram": "Parallelogram",
+    "hexagon": "Hexagon",
+    "line": "Line",
+    "arrow": "Arrow",
+    "toolGroups": {
+      "select": "Select",
+      "draw": "Draw",
+      "shape": "Shapes"
+    },
+    "brushStyle": "Brush",
+    "brushSize": "Brush Size",
+    "more": "More Options",
+    "customColor": "Custom Color"
+  },
+  "actions": {
+    "undo": "Undo",
+    "redo": "Redo",
+    "clearScreen": "Clear Screen",
+    "clearAll": "Clear All",
+    "confirmClearScreen": "Clear content in current view? This can be undone.",
+    "confirmClearAll": "Clear entire canvas? This can be undone.",
+    "confirmDeleteLayer": "Delete this layer and all its content?"
+  },
+  "view": {
+    "2d": "2D",
+    "3d": "3D",
+    "split": "Split",
+    "modeLabel": "View Mode"
+  },
+  "status": {
+    "online": "Online",
+    "connecting": "Connecting…",
+    "offline": "Local Mode",
+    "penConnected": "Pen Tablet Connected",
+    "room": "Room"
+  },
+  "layer": {
+    "hide": "Hide Layer",
+    "show": "Show Layer",
+    "lock": "Lock Layer",
+    "unlock": "Unlock Layer",
+    "delete": "Delete Layer"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "unknown": "An unknown error occurred",
+    "retry": "Retry"
+  },
+  "placeholder": {
+    "textInput": "Type text…"
+  }
+}

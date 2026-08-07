@@ -1,0 +1,72 @@
+{
+  "app": {
+    "title": "共享画布",
+    "subtitle": "ShareCanvas · 一起涂鸦",
+    "share": "分享",
+    "layers": "图层",
+    "addLayer": "新建图层",
+    "layerHint": "新内容绘制到当前选中层；隐藏/锁定的图层不可选中与编辑。"
+  },
+  "tools": {
+    "select": "选择/移动",
+    "hand": "手型（平移画布）",
+    "pen": "画笔",
+    "highlighter": "荧光笔",
+    "eraser": "橡皮擦",
+    "text": "文字",
+    "rect": "矩形",
+    "roundrect": "圆角矩形",
+    "ellipse": "椭圆",
+    "diamond": "菱形",
+    "parallelogram": "平行四边形",
+    "hexagon": "六边形",
+    "line": "直线",
+    "arrow": "箭头",
+    "toolGroups": {
+      "select": "选择",
+      "draw": "绘制",
+      "shape": "图形"
+    },
+    "brushStyle": "笔型",
+    "brushSize": "笔刷大小",
+    "more": "更多选项",
+    "customColor": "自定义颜色"
+  },
+  "actions": {
+    "undo": "撤销",
+    "redo": "重做",
+    "clearScreen": "清除屏幕（当前视野内）",
+    "clearAll": "清空画布",
+    "confirmClearScreen": "确定清除当前屏幕范围内的内容吗？此操作可以撤销。",
+    "confirmClearAll": "确定清空整个画布吗？此操作可以撤销。",
+    "confirmDeleteLayer": "删除该图层会同时删除其内容，确定吗？"
+  },
+  "view": {
+    "2d": "2D",
+    "3d": "3D",
+    "split": "分屏",
+    "modeLabel": "视图模式"
+  },
+  "status": {
+    "online": "在线",
+    "connecting": "连接中…",
+    "offline": "本地模式",
+    "penConnected": "压感笔已连接",
+    "room": "房间"
+  },
+  "layer": {
+    "hide": "隐藏图层",
+    "show": "显示图层",
+    "lock": "锁定图层（不可编辑）",
+    "unlock": "解锁图层",
+    "delete": "删除图层（连同内容）"
+  },
+  "error": {
+    "title": "出现了一些问题",
+    "unknown": "发生了未知错误",
+    "retry": "重试"
+  },
+  "placeholder": {
+    "textInput": "输入文字…"
+  }
+}

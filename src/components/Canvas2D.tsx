@@ -4,6 +4,7 @@ import { collab } from '../lib/collab'
 import { createId } from '../lib/id'
 import { nextSeq } from '../lib/seq'
 import { tickFps, recordDrawTime } from '../lib/perf'
+import { WorkerPool } from '../lib/workerPool'
 import { DEFAULT_LAYER_ID, yDeleteItems, yPush, yUpdateItem, yUpdateStrokePoints } from '../lib/yroom'
 import {
   shapeCenter,
@@ -34,8 +35,7 @@ export default function Canvas2D() {
   const layerCacheRef = useRef(new Map<string, LayerCache>())
   const dirtyLayersRef = useRef(new Set<string>())
   const lastDocRef = useRef<Doc | null>(null)
-  const workerRef = useRef<Worker | null>(null)
-  const workerOkRef = useRef(true)
+  const poolRef = useRef<WorkerPool | null>(null)
   const inflightRef = useRef(new Set<string>())
   const pendingRasterRef = useRef(new Map<string, RasterParams>())
   const suppressInvalidationRef = useRef(false)
@@ -82,11 +82,55 @@ export default function Canvas2D() {
   }, [])
 
   const pumpRaster = useCallback((id: string) => {
-    const p = pendingRasterRef.current.get(id)
-    if (!p) return
-    pendingRasterRef.current.delete(id)
-    inflightRef.current.add(id)
-    workerRef.current?.postMessage(p)
+    const doRaster = (layerId: string) => {
+      const p = pendingRasterRef.current.get(layerId)
+      if (!p) return
+      pendingRasterRef.current.delete(layerId)
+      inflightRef.current.add(layerId)
+      const pool = poolRef.current
+      if (!pool) return
+      pool.rasterize(p).then(
+        (result) => {
+          inflightRef.current.delete(result.layerId)
+          let cache = layerCacheRef.current.get(result.layerId)
+          if (!cache) {
+            cache = {
+              canvas: document.createElement('canvas'),
+              zoom: 0,
+              cam: { x: 0, y: 0 },
+              width: 0,
+              height: 0,
+              ready: false,
+            }
+            layerCacheRef.current.set(result.layerId, cache)
+          }
+          if (result.bitmap && result.width && result.height) {
+            if (cache.canvas.width !== result.width || cache.canvas.height !== result.height) {
+              cache.canvas.width = result.width
+              cache.canvas.height = result.height
+            }
+            const octx = cache.canvas.getContext('2d')
+            if (octx) {
+              octx.setTransform(1, 0, 0, 1, 0, 0)
+              octx.clearRect(0, 0, result.width, result.height)
+              octx.drawImage(result.bitmap, 0, 0)
+            }
+            result.bitmap.close()
+            cache.zoom = result.zoom
+            cache.cam = { x: result.camX, y: result.camY }
+            cache.width = result.width
+            cache.height = result.height
+            cache.ready = true
+          }
+          if (pendingRasterRef.current.has(result.layerId)) doRaster(result.layerId)
+          drawRef.current()
+        },
+        () => {
+          inflightRef.current.delete(layerId)
+        },
+      )
+    }
+    doRaster(id)
   }, [])
 
   const requestRaster = useCallback((params: RasterParams) => {
@@ -159,7 +203,7 @@ export default function Canvas2D() {
         outOfRange
 
       if (needRaster) {
-        if (forceSync || !workerOkRef.current || !workerRef.current) {
+        if (forceSync || !poolRef.current?.isAvailable) {
           layerCacheRef.current.set(
             layer.id,
             rasterizeLayerSync(
@@ -332,88 +376,19 @@ export default function Canvas2D() {
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
 
-  // 渲染 Worker：负责层光栅化，主线程只做合成；不支持时回退到同步路径
   useEffect(() => {
-    if (typeof Worker === 'undefined') {
-      workerOkRef.current = false
-      return
-    }
-    let w: Worker | null = null
-    try {
-      w = new Worker(new URL('../lib/render.worker.ts', import.meta.url), { type: 'module' })
-      workerRef.current = w
-      ;(window as unknown as Record<string, unknown>).__sharecanvasWorkerInfo = () => ({
-        ok: workerOkRef.current,
-      })
-      w.onmessage = (e: MessageEvent) => {
-        const msg = e.data as {
-          type: string
-          layerId?: string
-          bitmap?: ImageBitmap
-          width?: number
-          height?: number
-          zoom?: number
-          camX?: number
-          camY?: number
-        }
-        if (msg?.type === 'rasterized' && msg.layerId) {
-          inflightRef.current.delete(msg.layerId)
-          let cache = layerCacheRef.current.get(msg.layerId)
-          // 缓存可能因隐藏层/重建被删除：ack 时重建，否则该层永远空白
-          if (!cache) {
-            cache = {
-              canvas: document.createElement('canvas'),
-              zoom: 0,
-              cam: { x: 0, y: 0 },
-              width: 0,
-              height: 0,
-              ready: false,
-            }
-            layerCacheRef.current.set(msg.layerId, cache)
-          }
-          if (msg.bitmap && msg.width && msg.height && msg.zoom !== undefined && msg.camX !== undefined && msg.camY !== undefined) {
-            if (cache.canvas.width !== msg.width || cache.canvas.height !== msg.height) {
-              cache.canvas.width = msg.width
-              cache.canvas.height = msg.height
-            }
-            const octx = cache.canvas.getContext('2d')
-            if (octx) {
-              octx.setTransform(1, 0, 0, 1, 0, 0)
-              octx.clearRect(0, 0, msg.width, msg.height)
-              octx.drawImage(msg.bitmap, 0, 0)
-            }
-            msg.bitmap.close()
-            cache.zoom = msg.zoom
-            cache.cam = { x: msg.camX, y: msg.camY }
-            cache.width = msg.width
-            cache.height = msg.height
-            cache.ready = true
-          }
-          if (pendingRasterRef.current.has(msg.layerId)) pumpRaster(msg.layerId)
-          drawRef.current()
-        } else if (msg?.type === 'unsupported' || msg?.type === 'error') {
-          workerOkRef.current = false
-          workerRef.current?.terminate()
-          workerRef.current = null
-          inflightRef.current.clear()
-          pendingRasterRef.current.clear()
-          drawRef.current()
-        }
-      }
-      w.onerror = () => {
-        workerOkRef.current = false
-        workerRef.current?.terminate()
-        workerRef.current = null
-        drawRef.current()
-      }
-    } catch {
-      workerOkRef.current = false
-    }
+    const pool = new WorkerPool(
+      () => new Worker(new URL('../lib/render.worker.ts', import.meta.url), { type: 'module' }),
+    )
+    poolRef.current = pool
+    ;(window as unknown as Record<string, unknown>).__sharecanvasWorkerInfo = () => ({
+      ok: pool.isAvailable,
+      count: pool.workerCount,
+    })
     return () => {
-      w?.terminate()
-      workerRef.current = null
+      pool.terminate()
+      poolRef.current = null
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // 远端光标平滑：存在远端光标时持续 rAF 推进显示位置并重绘

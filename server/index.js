@@ -14,7 +14,21 @@ const ROOT = join(__dirname, '..')
 const DIST = join(ROOT, 'dist')
 const PORT = Number(process.env.PORT || 8787)
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(ROOT, 'data', 'rooms')
+const REDIS_URL = process.env.REDIS_URL || ''
 mkdirSync(DATA_DIR, { recursive: true })
+
+let redisPersistence = null
+if (REDIS_URL) {
+  try {
+    const mod = await import('y-redis')
+    const client = mod.createClient({ url: REDIS_URL })
+    await client.connect()
+    redisPersistence = (doc) => new mod.RedisPersistence(doc, client)
+    console.log(`[redis] 已连接 Redis: ${REDIS_URL}`)
+  } catch (err) {
+    console.error('[redis] 连接失败，将继续使用单机模式：', err?.message)
+  }
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -93,11 +107,17 @@ function getYDoc(docName) {
     doc = new Y.Doc()
     doc.conns = new Set()
     doc.awareness = new awarenessProtocol.Awareness(doc)
-    // 服务器自己不参与在线名单：Awareness 构造时会自带一个空本地状态，
-    // 不移除的话会作为“无名的访客”出现在所有客户端的参与者列表里
     doc.awareness.setLocalState(null)
     doc.deadline = null
     docs.set(docName, doc)
+
+    if (redisPersistence) {
+      try {
+        redisPersistence(doc)
+      } catch (err) {
+        console.error(`[redis] 房间 ${docName} 持久化初始失败：`, err?.message)
+      }
+    }
     loadPersistedDoc(docName, doc)
 
     // 文档更新广播（监听器每文档只注册一次，避免重复发送）
@@ -244,7 +264,12 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ ok: true, rooms: docs.size, uptime: Math.round(process.uptime()) }))
+    res.end(JSON.stringify({
+      ok: true,
+      rooms: docs.size,
+      uptime: Math.round(process.uptime()),
+      redis: !!redisPersistence,
+    }))
     return
   }
   handleStatic(req, res).catch(() => {

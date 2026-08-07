@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { PALETTE, useStore } from '../store'
 import type { Tool } from '../types'
+import { useTranslation } from 'react-i18next'
 
 function Icon({ children }: { children: ReactNode }) {
   return (
@@ -157,9 +158,9 @@ const BRUSH_OPTIONS = [
 ] as const
 
 const TOOL_GROUPS: { label: string; ids: Tool[] }[] = [
-  { label: '选择', ids: ['select', 'hand'] },
-  { label: '绘制', ids: ['pen', 'highlighter', 'eraser', 'text'] },
-  { label: '图形', ids: ['rect', 'roundrect', 'ellipse', 'diamond', 'parallelogram', 'hexagon', 'line', 'arrow'] },
+  { label: 'select', ids: ['select', 'hand'] },
+  { label: 'draw', ids: ['pen', 'highlighter', 'eraser', 'text'] },
+  { label: 'shape', ids: ['rect', 'roundrect', 'ellipse', 'diamond', 'parallelogram', 'hexagon', 'line', 'arrow'] },
 ]
 
 const toolById = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<
@@ -186,6 +187,7 @@ function ToolButton({ id, tool, setTool }: { id: Tool; tool: Tool; setTool: (t: 
 }
 
 function DesktopToolbar() {
+  const { t } = useTranslation()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const color = useStore((s) => s.color)
@@ -201,7 +203,7 @@ function DesktopToolbar() {
         <div className="scroll-thin flex max-h-[min(52vh,460px)] flex-col items-center gap-1 overflow-y-auto pr-0.5">
           {TOOL_GROUPS.map((g) => (
             <div key={g.label} className="flex flex-col items-center gap-0.5">
-              <span className="text-[9px] leading-3 text-zinc-400">{g.label}</span>
+              <span className="text-[9px] leading-3 text-zinc-400">{t(`tools.toolGroups.${g.label}`)}</span>
               {g.ids.map((id) => (
                 <ToolButton key={id} id={id} tool={tool} setTool={setTool} />
               ))}
@@ -223,21 +225,14 @@ function DesktopToolbar() {
               style={{ background: c }}
             />
           ))}
-          <label
-            title="自定义颜色"
-            className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-400 text-[10px] text-zinc-500"
-          >
+          <label title={t('tools.customColor')}
+            className="relative flex h-5 w-5 cursor-pointer items-center justify-center overflow-hidden rounded-md border border-dashed border-zinc-400 text-[10px] text-zinc-500">
             <span>＋</span>
-            <input
-              type="color"
-              value={color}
-              onChange={(e) => setColor(e.target.value)}
-              className="absolute inset-0 cursor-pointer opacity-0"
-            />
+            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" />
           </label>
         </div>
         <div className="flex w-full items-center gap-1" data-testid="brush-picker">
-          <span className="w-6 text-[10px] text-zinc-400">笔型</span>
+          <span className="w-6 text-[10px] text-zinc-400">{t('tools.brushStyle')}</span>
           {BRUSH_OPTIONS.map((b) => (
             <button
               key={b.id}
@@ -278,6 +273,7 @@ function DesktopToolbar() {
 }
 
 function MobileToolbar() {
+  const { t } = useTranslation()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const color = useStore((s) => s.color)
@@ -310,7 +306,7 @@ function MobileToolbar() {
             </label>
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-[10px] text-zinc-400">笔型</span>
+            <span className="text-[10px] text-zinc-400">{t('tools.brushStyle')}</span>
             {BRUSH_OPTIONS.map((b) => (
               <button
                 key={b.id}
@@ -336,7 +332,7 @@ function MobileToolbar() {
         ))}
         <div className="mx-0.5 h-7 w-px bg-zinc-200" />
         <button
-          title="更多选项"
+          title={t('tools.more')}
           onClick={() => setExpanded(!expanded)}
           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
             expanded ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'

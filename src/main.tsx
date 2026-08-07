@@ -5,6 +5,7 @@ import { ErrorBoundary } from './components/ErrorBoundary'
 import { installShortcuts } from './lib/shortcuts'
 import { initPersistence } from './lib/yroom'
 import { useStore } from './store'
+import './i18n'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
