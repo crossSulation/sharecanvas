@@ -30,7 +30,7 @@ export const LOCAL = 'local'
 
 export const undoManager = new Y.UndoManager(
   [yStrokes, yShapes, yTexts, yObjects, yEraser, yLayers],
-  { trackedOrigins: new Set([LOCAL]), captureTimeout: 800 },
+  { trackedOrigins: new Set([LOCAL]), captureTimeout: 200 },
 )
 
 // 把“创建序号”计数器续到文档现有最大值，避免加载/远端同步后
