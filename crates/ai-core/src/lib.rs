@@ -88,7 +88,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
         let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
         let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
         let kind = if angle > -30.0 && angle < 30.0 && dist > 30.0 { "arrow" } else { "line" };
-        log_decision("line/arrow", kind, line_conf);
+        log_decision("pure","line/arrow", kind, line_conf);
         return Some(DetectedShape {
             kind: kind.into(),
             x0: first.x, y0: first.y,
@@ -104,7 +104,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
 
-    log_decision("any", "none", 0.0);
+    log_decision("pure","any", "none", 0.0);
     None
 }
 
@@ -263,17 +263,17 @@ fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     on_edge as f64 / points.len() as f64
 }
 
-fn log_decision(category: &str, kind: &str, conf: f64) {
+fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
     log::info!(
-        "[ai-core] detect_shape: category={} kind={} conf={:.2}",
-        category, kind, conf
+        "[ai-core] source={} category={} kind={} conf={:.2}",
+        source, category, kind, conf
     );
 }
 
 fn try_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
     let conf = eval_triangle(points, bbox);
     if conf > 0.65 {
-        log_decision("triangle", "triangle→diamond", conf);
+        log_decision("pure","triangle", "triangle→diamond", conf);
         return Some(DetectedShape {
             kind: "triangle".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
@@ -289,7 +289,7 @@ fn try_rect(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShap
     let aspect = w / h.max(1.0);
     let conf = eval_rect(points, bbox);
     if conf > 0.7 && aspect > 0.3 && aspect < 3.0 {
-        log_decision("rect", "rect", conf);
+        log_decision("pure","rect", "rect", conf);
         return Some(DetectedShape {
             kind: "rect".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
@@ -305,7 +305,7 @@ fn try_ellipse(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
     let aspect = w / h.max(1.0);
     let conf = eval_circle(points, bbox);
     if conf > 0.6 && aspect > 0.4 && aspect < 2.5 {
-        log_decision("circle", "ellipse", conf);
+        log_decision("pure","circle", "ellipse", conf);
         return Some(DetectedShape {
             kind: "ellipse".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
@@ -321,7 +321,7 @@ fn try_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
     let aspect = w / h.max(1.0);
     let conf = eval_diamond(points, bbox);
     if conf > 0.65 && aspect > 0.4 && aspect < 2.5 {
-        log_decision("diamond", "diamond", conf);
+        log_decision("pure","diamond", "diamond", conf);
         return Some(DetectedShape {
             kind: "diamond".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
@@ -337,7 +337,7 @@ fn try_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<Det
     let aspect = w / h.max(1.0);
     let conf = eval_parallelogram(points, bbox);
     if conf > 0.6 && aspect > 0.5 && aspect < 3.5 {
-        log_decision("parallelogram", "parallelogram", conf);
+        log_decision("pure","parallelogram", "parallelogram", conf);
         return Some(DetectedShape {
             kind: "parallelogram".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
@@ -353,7 +353,7 @@ fn try_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
     let aspect = w / h.max(1.0);
     let conf = eval_hexagon(points, bbox);
     if conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
-        log_decision("hexagon", "hexagon", conf);
+        log_decision("pure","hexagon", "hexagon", conf);
         return Some(DetectedShape {
             kind: "hexagon".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,

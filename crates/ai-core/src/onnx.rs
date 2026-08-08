@@ -175,6 +175,12 @@ mod imp {
 
             let label = SHAPE_LABELS.get(max_idx).map(|(_, kind)| *kind).unwrap_or("rect");
 
+            log::info!(
+                "[ai-core] source=onnx category={}→{} kind={} conf={:.2}",
+                SHAPE_LABELS.get(max_idx).map(|(k, _)| *k).unwrap_or("?"),
+                label, label, max_val as f64
+            );
+
             Ok(Some(DetectedShape {
                 kind: label.to_string(),
                 x0: xs.iter().cloned().fold(f64::INFINITY, f64::min),
