@@ -10,3 +10,4 @@ native/target
 crates/ai-core/target
 crates/ai-core/Cargo.lock
 *.node
+.venv
