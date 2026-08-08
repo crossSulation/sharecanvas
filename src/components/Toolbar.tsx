@@ -208,14 +208,14 @@ function DesktopToolbar() {
               <span className="text-[9px] leading-3 text-zinc-400">{t(`tools.toolGroups.${g.label}`)}</span>
               {g.ids.map((id) => (
                 <ToolButton key={id} id={id} tool={tool} setTool={setTool} />
+              ))}
+            </div>
           ))}
-          <div className="mt-0.5 border-t border-zinc-100 pt-1">
+          <div className="mt-0.5 w-full border-t border-zinc-100 pt-1.5">
             <span className="text-[9px] leading-3 text-zinc-400">模板</span>
-            <div className="mt-0.5 flex flex-col gap-0.5">
+            <div className="mt-1 flex flex-col gap-0.5">
               {TEMPLATES.map((tpl) => (
-                <button
-                  key={tpl.id}
-                  title={tpl.name}
+                <button key={tpl.id} title={`${tpl.category} · ${tpl.name}`}
                   onClick={() => {
                     const result = tpl.build()
                     if (result) {
@@ -224,15 +224,12 @@ function DesktopToolbar() {
                       useStore.getState().set({ tool: 'select' as Tool })
                     }
                   }}
-                  className="flex h-7 w-9 items-center justify-center rounded-lg border border-zinc-200 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
-                >
+                  className="flex h-6 w-9 items-center justify-center rounded-md border border-zinc-200 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900">
                   {tpl.icon}
                 </button>
               ))}
             </div>
           </div>
-        </div>
-          ))}
         </div>
       </div>
 
