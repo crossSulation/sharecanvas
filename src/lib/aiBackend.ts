@@ -12,11 +12,14 @@ interface BackendAI {
   }>
 }
 
-async function getBackend(): Promise<BackendAI | null> {
+type BackendName = 'tauri' | 'native-server' | 'js-fallback'
+
+async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
+    const backend: BackendAI = { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
+    return { backend, name: 'tauri' }
   } catch {
     /* not Tauri */
   }
@@ -27,13 +30,16 @@ async function getBackend(): Promise<BackendAI | null> {
       const health = await res.json()
       if (health.ai) {
         return {
-          beautify_stroke: async (args) => {
-            const r = await fetch('/api/ai/beautify', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(args),
-            })
-            return r.json()
+          name: 'native-server',
+          backend: {
+            beautify_stroke: async (args) => {
+              const r = await fetch('/api/ai/beautify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(args),
+              })
+              return r.json()
+            },
           },
         }
       }
@@ -55,12 +61,22 @@ function extractPoints(points: unknown[]): Pt[] {
 }
 
 export async function beautifySelected(): Promise<number> {
+  const t0 = performance.now()
   const s = useStore.getState()
   const strokeIds = s.selected.filter((id) => s.doc.strokes.some((st) => st.id === id))
   if (!strokeIds.length) return 0
 
-  const backend = await getBackend()
-  let count = 0
+  const resolved = await getBackend()
+  const backend = resolved?.backend ?? null
+  const pathLabel = resolved?.name ?? 'js-fallback'
+
+  console.log(
+    `%c[beautify] %cpath=%c${pathLabel} %cstrokes=%c${strokeIds.length}`,
+    'color:#8b5cf6;font-weight:bold', '', 'color:#3b82f6', '', 'color:#18181b;font-weight:bold',
+  )
+
+  let smoothedCount = 0
+  let shapeCount = 0
 
   for (const id of strokeIds) {
     const st = s.doc.strokes.find((x) => x.id === id)
@@ -68,6 +84,8 @@ export async function beautifySelected(): Promise<number> {
 
     const pts = extractPoints(st.points)
     if (pts.length < 3) continue
+
+    const t1 = performance.now()
 
     if (backend) {
       const result = await backend.beautify_stroke({ points: pts })
@@ -86,8 +104,14 @@ export async function beautifySelected(): Promise<number> {
           seq: nextSeq(),
           layer: st.layer,
         }])
+        shapeCount++
+        console.log(
+          `  %c→ shape %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+          'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+        )
       } else {
         yUpdateStrokePoints(id, smoothed)
+        smoothedCount++
       }
     } else {
       const smoothed = smoothPoints(pts, 2)
@@ -105,11 +129,23 @@ export async function beautifySelected(): Promise<number> {
           seq: nextSeq(),
           layer: st.layer,
         }])
+        shapeCount++
+        console.log(
+          `  %c→ shape %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+          'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+        )
       } else {
         yUpdateStrokePoints(id, smoothed)
+        smoothedCount++
       }
     }
-    count++
   }
-  return count
+
+  const totalMs = (performance.now() - t0).toFixed(1)
+  console.log(
+    `%c[beautify] %cdone %c${totalMs}ms %cshapes=${shapeCount} smoothed=${smoothedCount}`,
+    'color:#8b5cf6;font-weight:bold', '', 'color:#a1a1aa', '', '',
+  )
+
+  return strokeIds.length
 }
