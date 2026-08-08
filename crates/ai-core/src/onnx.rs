@@ -114,13 +114,14 @@ mod imp {
             }
 
             let input = tract_ndarray::Array::from_shape_vec(
-                (1usize, MAX_POINTS, 2usize), input_data,
+                (1usize, (MAX_POINTS * 2) as usize), input_data,
             ).map_err(|e| e.to_string())?.into_tensor();
 
             let outputs = model.run(tvec!(input.into())).map_err(|e| e.to_string())?;
             let output = outputs[0].to_array_view::<f32>().map_err(|e| e.to_string())?;
 
-            let num_out = output.shape()[1].min(points.len());
+            let num_out = output.shape()[1] / 2;
+            let num_out = num_out.min(points.len());
             let scale_x = points.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max)
                 - points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
             let scale_y = points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max)
@@ -151,7 +152,7 @@ mod imp {
             }
 
             let input = tract_ndarray::Array::from_shape_vec(
-                (1usize, MAX_POINTS, 2usize), input_data,
+                (1usize, (MAX_POINTS * 2) as usize), input_data,
             ).map_err(|e| e.to_string())?.into_tensor();
 
             let outputs = model.run(tvec!(input.into())).map_err(|e| e.to_string())?;
