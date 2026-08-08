@@ -584,6 +584,7 @@ export default function Canvas2D() {
       return
     }
     if ((e.shiftKey || s.boxSelecting) && s.tool === 'select') {
+      e.preventDefault()
       const w = toWorld(e.clientX, e.clientY)
       interactionRef.current = { type: 'boxselect', start: w, end: w }
       return
@@ -601,11 +602,11 @@ export default function Canvas2D() {
       return
     }
     if (s.tool === 'pen' || s.tool === 'highlighter') {
-      const isPen = e.pointerType === 'pen'
+      e.preventDefault()
       const stroke: Stroke = {
         id: createId('s'),
         kind: s.tool === 'highlighter' ? 'highlighter' : s.brushStyle,
-        points: [isPen ? { x: w.x, y: w.y, p: e.pressure || 0.5 } : w],
+        points: [{ x: w.x, y: w.y, p: (e.pressure ?? 0) > 0 ? e.pressure : 0.5 }],
         color: s.color,
         size: s.tool === 'highlighter' ? Math.max(6, s.size * 1.6) : s.size,
         opacity: s.tool === 'highlighter' ? 0.35 : 1,
@@ -619,6 +620,7 @@ export default function Canvas2D() {
       return
     }
     if (s.tool === 'eraser') {
+      e.preventDefault()
       interactionRef.current = { type: 'erase', r: eraserRadius(s.size), path: [], last: 0 }
       eraseAt(w)
       return
@@ -633,6 +635,7 @@ export default function Canvas2D() {
       s.tool === 'line' ||
       s.tool === 'arrow'
     ) {
+      e.preventDefault()
       let attachStartId: string | undefined
       let start = w
       if (s.tool === 'arrow') {
@@ -755,7 +758,15 @@ export default function Canvas2D() {
     }
 
     if (it?.type === 'stroke') {
-      it.stroke.points.push(e.pointerType === 'pen' ? { ...w, p: e.pressure || 0.5 } : w)
+      const events: PointerEvent[] = (e.nativeEvent as PointerEvent).getCoalescedEvents?.() ?? []
+      if (events.length > 0) {
+        for (const ce of events) {
+          const cw = toWorld(ce.clientX, ce.clientY)
+          it.stroke.points.push({ ...cw, p: (ce.pressure ?? 0) > 0 ? ce.pressure : 0.5 })
+        }
+      } else {
+        it.stroke.points.push({ ...w, p: (e.pressure ?? 0) > 0 ? e.pressure : 0.5 })
+      }
       const pts = it.stroke.points.slice()
       yUpdateStrokePoints(it.stroke.id, pts)
       return
