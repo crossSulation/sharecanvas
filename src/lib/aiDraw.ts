@@ -13,12 +13,18 @@ export function beautifySelected() {
     const st = s.doc.strokes.find((x) => x.id === id)
     if (!st || st.points.length < 3) continue
 
-    const pts = smoothPoints(st.points.map((p) =>
-      (typeof p === 'object' && 'x' in p ? { x: p.x, y: p.y } : p) as Pt
-    ), 2)
+    const pts: Pt[] = st.points.map((p) => {
+      if (typeof p === 'object' && p !== null && 'x' in p && 'y' in p) {
+        return { x: (p as { x: number; y: number }).x, y: (p as { x: number; y: number }).y }
+      }
+      return { x: 0, y: 0 }
+    }).filter((p) => isFinite(p.x) && isFinite(p.y))
 
-    const detected = detectShape(pts)
-    if (detected && detected.confidence > 0.82 && pts.length > 8) {
+    if (pts.length < 3) continue
+
+    const smoothed = smoothPoints(pts, 2)
+    const detected = detectShape(smoothed)
+    if (detected && detected.confidence > 0.85 && pts.length > 10) {
       yDeleteItems('strokes', [id])
       yPush('shapes', [{
         id: createId('sh'),
@@ -31,7 +37,7 @@ export function beautifySelected() {
         layer: st.layer,
       }])
     } else {
-      yUpdateStrokePoints(id, pts)
+      yUpdateStrokePoints(id, smoothed)
     }
   }
 }

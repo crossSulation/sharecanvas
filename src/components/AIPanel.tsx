@@ -7,7 +7,7 @@ export default function AIPanel() {
   if (!hasStrokes) return null
 
   return (
-    <div className="pointer-events-auto absolute right-3 bottom-24 z-20">
+    <div className="pointer-events-auto absolute right-3 bottom-16 z-20">
       <button
         onClick={beautifySelected}
         className="flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100 shadow-sm transition-colors"
