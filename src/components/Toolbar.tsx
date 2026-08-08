@@ -2,6 +2,8 @@ import { type ReactNode, useEffect, useState } from 'react'
 import { PALETTE, useStore } from '../store'
 import type { Tool } from '../types'
 import { useTranslation } from 'react-i18next'
+import { TEMPLATES } from '../lib/templates'
+import { yPush } from '../lib/yroom'
 
 function Icon({ children }: { children: ReactNode }) {
   return (
@@ -206,8 +208,30 @@ function DesktopToolbar() {
               <span className="text-[9px] leading-3 text-zinc-400">{t(`tools.toolGroups.${g.label}`)}</span>
               {g.ids.map((id) => (
                 <ToolButton key={id} id={id} tool={tool} setTool={setTool} />
+          ))}
+          <div className="mt-0.5 border-t border-zinc-100 pt-1">
+            <span className="text-[9px] leading-3 text-zinc-400">模板</span>
+            <div className="mt-0.5 flex flex-col gap-0.5">
+              {TEMPLATES.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  title={tpl.name}
+                  onClick={() => {
+                    const result = tpl.build()
+                    if (result) {
+                      yPush('shapes', result.shapes)
+                      yPush('texts', result.texts)
+                      useStore.getState().set({ tool: 'select' as Tool })
+                    }
+                  }}
+                  className="flex h-7 w-9 items-center justify-center rounded-lg border border-zinc-200 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                >
+                  {tpl.icon}
+                </button>
               ))}
             </div>
+          </div>
+        </div>
           ))}
         </div>
       </div>

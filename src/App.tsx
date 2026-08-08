@@ -29,6 +29,9 @@ export default function App() {
       const s = useStore.getState()
       collab.connect(room, s.selfName, s.selfColor)
     }
+    if (params.get('readonly') === '1') {
+      useStore.getState().set({ readOnly: true })
+    }
   }, [])
 
   return (

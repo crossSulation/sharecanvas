@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useStore } from '../store'
 import { collab } from '../lib/collab'
 import { roomCode } from '../lib/id'
-import { docToSnapshotHash, exportDocFile, importDocFile } from '../lib/serialize'
+import { docToSnapshotHash, exportDocFile, importDocFile, jsonToDoc } from '../lib/serialize'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -25,6 +25,28 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+interface VersionEntry {
+  id: string
+  time: number
+  label: string
+  data: string
+}
+
+const VERSIONS_KEY = 'sharecanvas:versions:v1'
+
+function loadVersions(): VersionEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(VERSIONS_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+function saveVersions(v: VersionEntry[]) {
+  const keep = v.slice(0, 20)
+  localStorage.setItem(VERSIONS_KEY, JSON.stringify(keep))
+}
+
 export default function ShareDialog() {
   const open = useStore((s) => s.shareOpen)
   const setShareOpen = useStore((s) => s.setShareOpen)
@@ -37,9 +59,14 @@ export default function ShareDialog() {
   const doc = useStore((s) => s.doc)
   const lastError = useStore((s) => s.lastError)
   const set = useStore((s) => s.set)
+  const readOnly = useStore((s) => s.readOnly)
   const [code, setCode] = useState('')
   const [copied, setCopied] = useState('')
+  const [versions, setVersions] = useState<VersionEntry[]>(() => loadVersions())
+  const [versionLabel, setVersionLabel] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const refreshVersions = () => setVersions(loadVersions())
 
   if (!open) return null
 
@@ -55,7 +82,7 @@ export default function ShareDialog() {
     collab.disconnect()
     set({ room: null })
   }
-  const roomLink = room ? `${location.origin}${location.pathname}?room=${room}` : ''
+  const roomLink = room ? `${location.origin}${location.pathname}?room=${room}${readOnly ? '&readonly=1' : ''}` : ''
   const copyRoomLink = async () => {
     if (await copyText(roomLink)) setCopied('room')
   }
@@ -76,10 +103,41 @@ export default function ShareDialog() {
     }
   }
 
+  const saveVersion = () => {
+    const v = loadVersions()
+    v.unshift({
+      id: Date.now().toString(36),
+      time: Date.now(),
+      label: versionLabel.trim() || `快照 ${new Date().toLocaleTimeString('zh-CN')}`,
+      data: JSON.stringify(doc),
+    })
+    saveVersions(v)
+    refreshVersions()
+    setVersionLabel('')
+  }
+
+  const loadVersion = (entry: VersionEntry) => {
+    const d = jsonToDoc(entry.data)
+    if (d) useStore.getState().importDoc(d)
+  }
+
+  const deleteVersion = (id: string) => {
+    const v = loadVersions().filter((x) => x.id !== id)
+    saveVersions(v)
+    refreshVersions()
+  }
+
+  const copyReadOnly = async () => {
+    const hash = docToSnapshotHash(doc)
+    if (!hash) return
+    const link = `${location.origin}${location.pathname}${hash}&readonly=1`
+    if (await copyText(link)) setCopied('readonly')
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-900/40 p-4 backdrop-blur-sm" onClick={() => setShareOpen(false)}>
       <div
-        className="animate-fade-up w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl shadow-zinc-900/10"
+        className="animate-fade-up w-full max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border border-zinc-200 bg-white p-5 shadow-2xl shadow-zinc-900/10"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-center justify-between">
@@ -148,13 +206,24 @@ export default function ShareDialog() {
                   {copied === 'room' ? '已复制 ✓' : '复制链接'}
                 </button>
               </div>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 text-[11px] text-zinc-600 cursor-pointer">
+                  <input type="checkbox" checked={readOnly} onChange={(e) => set({ readOnly: e.target.checked })}
+                    className="rounded border-zinc-300" />
+                  仅查看（只读模式）
+                </label>
+                {readOnly && (
+                  <button onClick={copyReadOnly}
+                    className="rounded border border-zinc-300 px-2 py-0.5 text-[10px] text-zinc-500 hover:bg-zinc-100">
+                    {copied === 'readonly' ? '已复制只读链接 ✓' : '复制只读链接'}
+                  </button>
+                )}
+              </div>
               <div className="flex items-center justify-between">
                 <div className="flex flex-wrap items-center gap-1.5">
                   {Object.values(users).map((u) => (
-                    <span
-                      key={u.id}
-                      className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-600"
-                    >
+                    <span key={u.id}
+                      className="flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] text-zinc-600">
                       <span className="h-2 w-2 rounded-full" style={{ background: u.color }} />
                       {u.name}
                     </span>
@@ -170,33 +239,70 @@ export default function ShareDialog() {
         </div>
 
         <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+          <div className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-700">
+            <span>版本历史</span>
+            <span className="text-zinc-400">{versions.length}/20</span>
+          </div>
+          <div className="mb-2 flex items-center gap-1.5">
+            <input
+              value={versionLabel}
+              onChange={(e) => setVersionLabel(e.target.value)}
+              placeholder="版本标签（可选）"
+              maxLength={30}
+              className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-zinc-500"
+            />
+            <button
+              onClick={saveVersion}
+              className="shrink-0 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-700"
+            >
+              保存当前版本
+            </button>
+          </div>
+          {versions.length > 0 && (
+            <div className="max-h-32 overflow-y-auto rounded-lg border border-zinc-200 bg-white">
+              {versions.map((v) => (
+                <div key={v.id} className="flex items-center justify-between border-b border-zinc-100 px-3 py-1.5 last:border-b-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] text-zinc-800">{v.label}</div>
+                    <div className="text-[10px] text-zinc-400">{new Date(v.time).toLocaleString('zh-CN')}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => { if (window.confirm('加载此版本会替换当前内容，确定吗？')) loadVersion(v) }}
+                      className="rounded px-2 py-0.5 text-[10px] text-zinc-600 hover:bg-zinc-100"
+                    >
+                      加载
+                    </button>
+                    <button
+                      onClick={() => deleteVersion(v.id)}
+                      className="rounded px-1.5 py-0.5 text-[10px] text-zinc-400 hover:text-red-500"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
           <div className="mb-2 text-xs font-medium text-zinc-700">离线分享</div>
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={copySnapshot}
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100"
-            >
+            <button onClick={copySnapshot}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
               {copied === 'snapshot' ? '已复制快照链接 ✓' : copied === 'big' ? '内容太大，请用文件导出' : '复制快照链接'}
             </button>
-            <button
-              onClick={() => exportDocFile(doc)}
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100"
-            >
+            <button onClick={() => exportDocFile(doc)}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
               导出 JSON
             </button>
-            <button
-              onClick={() => fileRef.current?.click()}
-              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100"
-            >
+            <button onClick={() => fileRef.current?.click()}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
               导入 JSON
             </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={(e) => onImport(e.target.files?.[0])}
-            />
+            <input ref={fileRef} type="file" accept="application/json,.json" className="hidden"
+              onChange={(e) => onImport(e.target.files?.[0])} />
           </div>
           <p className="mt-2 text-[10px] leading-relaxed text-zinc-400">
             快照链接把当前内容直接编码进网址，无需服务器即可分享；内容很大时请改用文件导入导出。
@@ -212,13 +318,10 @@ export default function ShareDialog() {
             className="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-zinc-500"
             placeholder="昵称"
           />
-          <input
-            type="color"
-            value={selfColor}
+          <input type="color" value={selfColor}
             onChange={(e) => setSelf(selfName, e.target.value)}
             className="h-7 w-9 cursor-pointer rounded border border-zinc-300 bg-transparent"
-            title="身份颜色"
-          />
+            title="身份颜色" />
         </div>
       </div>
     </div>

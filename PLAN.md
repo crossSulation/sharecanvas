@@ -24,8 +24,8 @@
 - [x] M5: 服务端水平扩展（Redis Pub/Sub 或 y-redis 跨进程同步）
 - [x] M6: 国际化 i18n（`react-i18next` 多语言支持）
 - [x] M7: 性能打点 + 帧率监控 + FPS overlay（`?debug` URL param）
-- [ ] M8: 3D 模型导入（glTF/OBJ）
-- [ ] M9: 图层混合模式（正片叠底/滤色等）
+- [x] M8: 3D 模型导入（glTF/OBJ）
+- [x] M9: 图层混合模式（正片叠底/滤色等）
 - [x] M10: 选择工具增强（8 点缩放手柄 + 聚合包围盒）
 - [ ] M11: 手写识别（OCR 笔迹转文字）
 

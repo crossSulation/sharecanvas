@@ -566,6 +566,7 @@ export default function Canvas2D() {
     canvas.setPointerCapture(e.pointerId)
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType })
     const s = useStore.getState()
+    if (s.readOnly && s.tool !== 'select' && s.tool !== 'hand') return
     if (e.button === 1 || e.button === 2 || spaceRef.current || s.tool === 'hand') {
       interactionRef.current = { type: 'pan', camStart: s.camera, start: { x: e.clientX, y: e.clientY } }
       return

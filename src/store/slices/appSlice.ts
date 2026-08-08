@@ -18,6 +18,7 @@ export interface AppSlice {
   lastError: string | null
   shareOpen: boolean
   penDetected: boolean
+  readOnly: boolean
   set(p: Partial<CanvasState>): void
   setMode(m: ViewMode): void
   setViewport(v: { w: number; h: number }): void
@@ -38,6 +39,7 @@ export const createAppSlice: StateCreator<CanvasState, [], [], AppSlice> = (set)
   lastError: null,
   shareOpen: false,
   penDetected: false,
+  readOnly: false,
 
   set: (p) => set(p),
   setMode: (m) => set({ mode: m }),
