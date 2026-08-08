@@ -20,27 +20,33 @@ const REDIS_URL = process.env.REDIS_URL || ''
 let nativeAI = null;
 (() => {
   try {
-    const { platform, arch } = process
-    const osMap = { darwin: 'darwin', linux: 'linux', win32: 'win32' }
-    const archMap = { arm64: 'arm64', x64: 'x64' }
-    const suffix = osMap[platform] || platform
-    const archName = archMap[arch] || arch
-    const candidates = [
-      `sharecanvas-native.${suffix}-${archName}.node`,
-      `sharecanvas-native.${suffix}-${archName}-gnu.node`,
-    ]
     const req = createRequire(import.meta.url)
-    for (const f of candidates) {
-      try {
-        nativeAI = req(join(ROOT, 'native', f))
-        console.log('[ai] Rust native addon loaded')
-        break
-      } catch {
-        /* try next */
+    nativeAI = req(join(ROOT, 'native', 'index.js'))
+    console.log('[ai] Rust native addon loaded')
+  } catch {
+    try {
+      const { platform, arch } = process
+      const osMap = { darwin: 'darwin', linux: 'linux', win32: 'win32' }
+      const archMap = { arm64: 'arm64', x64: 'x64' }
+      const suffix = osMap[platform] || platform
+      const archName = archMap[arch] || arch
+      const candidates = [
+        `sharecanvas-native.${suffix}-${archName}.node`,
+        `sharecanvas-native.${suffix}-${archName}-gnu.node`,
+      ]
+      const req = createRequire(import.meta.url)
+      for (const f of candidates) {
+        try {
+          nativeAI = req(join(ROOT, 'native', f))
+          console.log('[ai] Rust native addon loaded')
+          break
+        } catch {
+          /* try next */
+        }
       }
+    } catch {
+      /* native addon not built */
     }
-  } catch (e) {
-    /* native addon not built */
   }
 })()
 mkdirSync(DATA_DIR, { recursive: true })
