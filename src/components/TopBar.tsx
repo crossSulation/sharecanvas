@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useStore } from '../store'
 import { useTranslation } from 'react-i18next'
+import { startCall, stopCall, toggleLocalAudio, toggleLocalVideo, isCallActive, subscribe } from '../lib/webrtc'
 
 const VIEWS: { id: '2d' | '3d' | 'split'; label: string }[] = [
   { id: '2d', label: '2D' },
@@ -31,6 +32,28 @@ export default function TopBar() {
   )
   const otherUsers = Object.values(users).filter((u) => u.id !== selfId).length
   const [menuOpen, setMenuOpen] = useState(false)
+  const [callActive, setCallActive] = useState(false)
+  const [audioOn, setAudioOn] = useState(true)
+  const [videoOn, setVideoOn] = useState(true)
+
+  useEffect(() => {
+    return subscribe(() => {
+      setCallActive(isCallActive())
+    })
+  }, [])
+
+  const handleCallStart = useCallback(async () => {
+    await startCall()
+    setCallActive(isCallActive())
+  }, [])
+
+  const handleCallEnd = useCallback(() => {
+    stopCall()
+    setCallActive(false)
+  }, [])
+
+  const handleToggleAudio = useCallback(() => setAudioOn(toggleLocalAudio()), [])
+  const handleToggleVideo = useCallback(() => setVideoOn(toggleLocalVideo()), [])
 
   return (
     <header
@@ -131,6 +154,36 @@ export default function TopBar() {
               : t('status.offline')}
         </span>
       </div>
+
+      {room && !callActive && (
+        <button data-testid="call-start"
+          onClick={handleCallStart}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-emerald-600 transition-colors hover:bg-emerald-50"
+          title="开始音视频通话"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+          </svg>
+        </button>
+      )}
+
+      {callActive && (
+        <div className="flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-1">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <button onClick={handleToggleAudio} title={audioOn ? '关闭麦克风' : '打开麦克风'}
+            className="flex h-6 w-6 items-center justify-center rounded-full text-xs">
+            {audioOn ? '🎙' : '🔇'}
+          </button>
+          <button onClick={handleToggleVideo} title={videoOn ? '关闭摄像头' : '打开摄像头'}
+            className="flex h-6 w-6 items-center justify-center rounded-full text-xs">
+            {videoOn ? '📹' : '📷'}
+          </button>
+          <button onClick={handleCallEnd} title="挂断"
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+            ✕
+          </button>
+        </div>
+      )}
 
       <button data-testid="share-open" onClick={() => setShareOpen(true)}
         className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700">

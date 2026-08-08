@@ -7,7 +7,6 @@ import ShareDialog from './components/ShareDialog'
 import Hint from './components/Hint'
 import LayerPanel from './components/LayerPanel'
 import PerfOverlay from './components/PerfOverlay'
-import WebRTCPanel from './components/WebRTCPanel'
 import AIPanel from './components/AIPanel'
 import AIChatPanel from './components/AIChatPanel'
 import { collab } from './lib/collab'
@@ -58,7 +57,6 @@ export default function App() {
         {debug && <PerfOverlay />}
         <Hint />
         <ShareDialog />
-        <WebRTCPanel />
         <AIPanel />
         <AIChatPanel />
       </div>
