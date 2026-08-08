@@ -3,6 +3,11 @@ import { useStore } from '../store'
 import { useTranslation } from 'react-i18next'
 import { startCall, stopCall, toggleLocalAudio, toggleLocalVideo, isCallActive, subscribe } from '../lib/webrtc'
 
+let isTauriApp = false
+try {
+  isTauriApp = '__TAURI__' in window
+} catch { /* SSR */ }
+
 const VIEWS: { id: '2d' | '3d' | 'split'; label: string }[] = [
   { id: '2d', label: '2D' },
   { id: '3d', label: '3D' },
@@ -134,6 +139,7 @@ export default function TopBar() {
         </div>
       )}
 
+      {!isTauriApp && (
       <div data-testid="room-status"
         className={`hidden items-center gap-1.5 rounded-full border px-2 sm:px-3 py-1 text-xs md:flex ${
           wsStatus === 'online' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
@@ -153,6 +159,7 @@ export default function TopBar() {
               : t('status.offline')}
         </span>
       </div>
+      )}
 
       {room && !callActive && (
         <button data-testid="call-start"
@@ -184,6 +191,7 @@ export default function TopBar() {
         </div>
       )}
 
+      {!isTauriApp && (
       <button data-testid="share-open" onClick={() => setShareOpen(true)}
         className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -191,6 +199,7 @@ export default function TopBar() {
         </svg>
         <span className="hidden sm:inline">{t('app.share')}</span>
       </button>
+      )}
 
       <div className="relative sm:hidden">
         <button onClick={() => setMenuOpen(!menuOpen)} title={t('tools.more')}
