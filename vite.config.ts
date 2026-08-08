@@ -45,6 +45,9 @@ export default defineConfig({
       '/ws': { target: 'ws://localhost:8787', ws: true },
     },
   },
+  optimizeDeps: {
+    exclude: ['@tauri-apps/api'],
+  },
   build: {
     outDir: 'dist',
     sourcemap: false,

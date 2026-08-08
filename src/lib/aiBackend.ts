@@ -15,13 +15,17 @@ interface BackendAI {
 type BackendName = 'tauri' | 'native-server' | 'js-fallback'
 
 async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
-  try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const backend: BackendAI = { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
-    return { backend, name: 'tauri' }
-  } catch {
-    /* not Tauri */
+  // 仅 Tauri 环境才尝试加载 @tauri-apps/api
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((window as any).__TAURI_INTERNALS__) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const backend: BackendAI = { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
+      return { backend, name: 'tauri' }
+    } catch {
+      /* Tauri API not available */
+    }
   }
 
   if (typeof fetch !== 'undefined') {
