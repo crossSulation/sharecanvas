@@ -10,16 +10,18 @@ const MODEL_CACHE = new Map<string, any>()
 async function loadModel(modelId: AIModel) {
   if (MODEL_CACHE.has(modelId)) return MODEL_CACHE.get(modelId)
 
-  const { pipeline } = await import('@huggingface/transformers')
+  const { pipeline, env } = await import('@xenova/transformers')
+  env.allowLocalModels = false
+  env.useBrowserCache = true
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let pipe: any
   if (modelId === 'caption') {
-    pipe = await pipeline('image-to-text', 'Xenova/blip-image-captioning-base', { device: 'wasm' })
+    pipe = await pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning')
   } else if (modelId === 'remove-bg') {
-    pipe = await pipeline('image-segmentation', 'Xenova/detr-resnet-50', { device: 'wasm' })
+    pipe = await pipeline('object-detection', 'Xenova/detr-resnet-50')
   } else if (modelId === 'text-gen') {
-    pipe = await pipeline('text-generation', 'Xenova/distilgpt2', { device: 'wasm' })
+    pipe = await pipeline('text-generation', 'Xenova/distilgpt2')
   }
 
   MODEL_CACHE.set(modelId, pipe)
@@ -70,11 +72,11 @@ export default function AIChatPanel() {
           return
         }
         const imgUrl = canvas.toDataURL('image/png')
-        const segments = await pipe(imgUrl)
+        const detections = await pipe(imgUrl)
         const labels: string[] = []
-        if (Array.isArray(segments)) {
-          for (const seg of segments) {
-            labels.push(`${seg.label}(${Math.round(seg.score * 100)}%)`)
+        if (Array.isArray(detections)) {
+          for (const d of detections) {
+            labels.push(`${d.label}(${Math.round(d.score * 100)}%)`)
           }
         }
         setResult(labels.length ? `检测到: ${labels.join(', ')}` : '未检测到物体')
