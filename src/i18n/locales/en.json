@@ -30,7 +30,9 @@
     "brushStyle": "Brush",
     "brushSize": "Brush Size",
     "more": "More Options",
-    "customColor": "Custom Color"
+    "customColor": "Custom Color",
+    "boxSelect": "Box Select",
+    "freeSelect": "Free Select"
   },
   "actions": {
     "undo": "Undo",

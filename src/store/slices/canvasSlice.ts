@@ -15,11 +15,13 @@ export interface CanvasSlice {
   color: string
   size: number
   brushStyle: StrokeKind
+  boxSelecting: boolean
   setCamera(p: Partial<Camera2D>): void
   setTool(t: Tool): void
   setColor(c: string): void
   setSize(s: number): void
   setBrushStyle(k: StrokeKind): void
+  setBoxSelecting(v: boolean): void
   clearScreen(): void
   clearAll(): void
   importDoc(doc: Parameters<typeof importDocIntoY>[0]): void
@@ -31,12 +33,14 @@ export const createCanvasSlice: StateCreator<CanvasState, [], [], CanvasSlice> =
   color: '#18181b',
   size: 4,
   brushStyle: 'pen' as StrokeKind,
+  boxSelecting: false,
 
   setCamera: (p) => set((s) => ({ camera: { ...s.camera, ...p } })),
   setTool: (t) => set({ tool: t }),
   setColor: (c) => set({ color: c }),
   setSize: (s) => set({ size: s }),
   setBrushStyle: (k) => set({ brushStyle: k, tool: 'pen' }),
+  setBoxSelecting: (v) => set({ boxSelecting: v }),
 
   clearScreen: () => {
     const s = get()

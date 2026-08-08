@@ -297,6 +297,7 @@ function MobileToolbar() {
   const { t } = useTranslation()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
+  const setBoxSelecting = useStore((s) => s.setBoxSelecting)
   const color = useStore((s) => s.color)
   const setColor = useStore((s) => s.setColor)
   const size = useStore((s) => s.size)
@@ -304,6 +305,27 @@ function MobileToolbar() {
   const brushStyle = useStore((s) => s.brushStyle)
   const setBrushStyle = useStore((s) => s.setBrushStyle)
   const [expanded, setExpanded] = useState(false)
+  const [selectSubOpen, setSelectSubOpen] = useState(false)
+
+  const handleSelectClick = () => {
+    if (tool === 'select') {
+      setSelectSubOpen(!selectSubOpen)
+    } else {
+      setSelectSubOpen(true)
+    }
+  }
+
+  const handleBoxSelect = () => {
+    setBoxSelecting(true)
+    setTool('select')
+    setSelectSubOpen(false)
+  }
+
+  const handleFreeSelect = () => {
+    setBoxSelecting(false)
+    setTool('select')
+    setSelectSubOpen(false)
+  }
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -349,9 +371,30 @@ function MobileToolbar() {
       )}
       <div className="pointer-events-auto flex flex-nowrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain
         [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        {TOOLS.map((t) => (
-          <ToolButton key={t.id} id={t.id} tool={tool} setTool={setTool} />
-        ))}
+        {TOOLS.map((t) => {
+          if (t.id === 'select') {
+            return (
+              <button
+                key={t.id}
+                title={toolById[t.id].label}
+                onClick={handleSelectClick}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors relative ${
+                  tool === 'select'
+                    ? 'bg-zinc-900 text-white'
+                    : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900'
+                }`}
+              >
+                {toolById[t.id].icon}
+                {selectSubOpen && (
+                  <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-zinc-900 text-[7px] text-white">▾</span>
+                )}
+              </button>
+            )
+          }
+          return (
+            <ToolButton key={t.id} id={t.id} tool={tool} setTool={setTool} />
+          )
+        })}
         <div className="mx-0.5 h-7 w-px bg-zinc-200" />
         <button
           title={t('tools.more')}
@@ -367,6 +410,31 @@ function MobileToolbar() {
           </svg>
         </button>
       </div>
+      {selectSubOpen && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setSelectSubOpen(false)} />
+          <div className="pointer-events-auto flex gap-2 rounded-xl border border-zinc-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+            <button
+              onClick={handleFreeSelect}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors text-zinc-600 hover:bg-zinc-100"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 3l7 18 2.5-7.5L21 11 4 3z" />
+              </svg>
+              {t('tools.freeSelect')}
+            </button>
+            <button
+              onClick={handleBoxSelect}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-colors text-zinc-600 hover:bg-zinc-100"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="4" width="16" height="16" strokeDasharray="3 2" />
+              </svg>
+              {t('tools.boxSelect')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

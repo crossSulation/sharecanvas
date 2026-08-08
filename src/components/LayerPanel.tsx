@@ -205,7 +205,6 @@ export default function LayerPanel() {
   return (
     <div className="animate-fade-up absolute right-3 top-3 z-40 w-64 rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg shadow-zinc-900/5 backdrop-blur
       max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:w-full max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:max-h-[70vh]"
-      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
     >
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-semibold text-zinc-800">{t('app.layers')}</span>

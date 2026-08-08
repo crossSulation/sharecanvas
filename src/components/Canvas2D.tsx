@@ -583,7 +583,7 @@ export default function Canvas2D() {
       interactionRef.current = { type: 'pan', camStart: s.camera, start: { x: e.clientX, y: e.clientY } }
       return
     }
-    if (e.shiftKey && s.tool === 'select') {
+    if ((e.shiftKey || s.boxSelecting) && s.tool === 'select') {
       const w = toWorld(e.clientX, e.clientY)
       interactionRef.current = { type: 'boxselect', start: w, end: w }
       return

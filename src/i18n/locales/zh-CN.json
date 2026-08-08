@@ -30,7 +30,9 @@
     "brushStyle": "笔型",
     "brushSize": "笔刷大小",
     "more": "更多选项",
-    "customColor": "自定义颜色"
+    "customColor": "自定义颜色",
+    "boxSelect": "框选",
+    "freeSelect": "自由选择"
   },
   "actions": {
     "undo": "撤销",

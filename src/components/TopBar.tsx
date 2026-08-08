@@ -57,7 +57,6 @@ export default function TopBar() {
 
   return (
     <header
-      style={{ paddingLeft: 'env(safe-area-inset-left)', paddingRight: 'env(safe-area-inset-right)' }}
       className="z-30 flex h-12 sm:h-14 shrink-0 items-center gap-1.5 sm:gap-3 border-b border-zinc-200 bg-white/90 p-2 sm:p-4 backdrop-blur"
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-sm font-black text-white">
