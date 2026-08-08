@@ -29,12 +29,11 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
   }
 
   if (typeof fetch !== 'undefined') {
-    const testUrl = `${location.protocol}//${location.host}/api/ai/beautify`
     try {
-      const res = await fetch(testUrl, {
+      const res = await fetch('/api/ai/beautify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: [{ x: 0, y: 0 }] }),
+        body: JSON.stringify({ points: [] }),
       })
       const contentType = res.headers.get('content-type') || ''
       if (contentType.includes('application/json')) {
