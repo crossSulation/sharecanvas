@@ -19,6 +19,8 @@
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
     "native:build": "cd native && napi build --platform --release",
+    "ai:check": "cd crates/ai-core && cargo check",
+    "ai:test": "cd crates/ai-core && cargo test",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
     "server": "node --env-file-if-exists=.env server/index.js"

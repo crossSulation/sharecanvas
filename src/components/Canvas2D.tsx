@@ -291,6 +291,18 @@ export default function Canvas2D() {
         }
       }
     }
+    if (itNow?.type === 'boxselect') {
+      const x0 = Math.min(itNow.start.x, itNow.end.x)
+      const y0 = Math.min(itNow.start.y, itNow.end.y)
+      const x1 = Math.max(itNow.start.x, itNow.end.x)
+      const y1 = Math.max(itNow.start.y, itNow.end.y)
+      ctx.setLineDash([4 / zoom, 3 / zoom])
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2 / zoom
+      ctx.fillStyle = 'rgba(59,130,246,0.08)'
+      ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
+    }
     ctx.restore()
 
     if (st.tool === 'eraser' && hoverRef.current) {
@@ -571,6 +583,11 @@ export default function Canvas2D() {
       interactionRef.current = { type: 'pan', camStart: s.camera, start: { x: e.clientX, y: e.clientY } }
       return
     }
+    if (e.shiftKey && s.tool === 'select') {
+      const w = toWorld(e.clientX, e.clientY)
+      interactionRef.current = { type: 'boxselect', start: w, end: w }
+      return
+    }
     const w = toWorld(e.clientX, e.clientY)
     // 活动层被隐藏/锁定时禁止绘制类工具（平移/选择不受限）
     const activeLayer = s.doc.layers.find((l) => l.id === s.activeLayerId)
@@ -701,6 +718,12 @@ export default function Canvas2D() {
       hoverHandleRef.current = null
     }
     const it = interactionRef.current
+
+    if (it?.type === 'boxselect') {
+      it.end = w
+      drawRef.current()
+      return
+    }
 
     if (it?.type === 'pan') {
       const dx = e.clientX - it.start.x
@@ -833,6 +856,31 @@ export default function Canvas2D() {
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointersRef.current.delete(e.pointerId)
     const it = interactionRef.current
+    if (it?.type === 'boxselect') {
+      const x0 = Math.min(it.start.x, it.end.x)
+      const y0 = Math.min(it.start.y, it.end.y)
+      const x1 = Math.max(it.start.x, it.end.x)
+      const y1 = Math.max(it.start.y, it.end.y)
+      const s = useStore.getState()
+      const selected: string[] = []
+      for (const st of s.doc.strokes) {
+        const b = itemBounds(st)
+        if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) selected.push(st.id)
+      }
+      for (const sh of s.doc.shapes) {
+        const b = itemBounds(sh)
+        if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) selected.push(sh.id)
+      }
+      for (const t of s.doc.texts) {
+        if (t.attachId) continue
+        const b = itemBounds(t)
+        if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) selected.push(t.id)
+      }
+      s.select(selected)
+      interactionRef.current = null
+      drawRef.current()
+      return
+    }
     if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'erase' || it?.type === 'move' || it?.type === 'resize') {
       if (it.type === 'shape') {
         if (Math.abs(it.end.x - it.start.x) < 3 && Math.abs(it.end.y - it.start.y) < 3) {

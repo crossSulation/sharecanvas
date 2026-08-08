@@ -10,6 +10,7 @@ export type Interaction =
   | { type: 'erase'; r: number; path: Pt[]; last: number }
   | { type: 'move'; start: Pt; items: ItemRef[]; dx: number; dy: number }
   | { type: 'resize'; start: Pt; startBounds: { x0: number; y0: number; x1: number; y1: number }; handle: ResizeHandle }
+  | { type: 'boxselect'; start: Pt; end: Pt }
   | { type: 'pan'; camStart: { x: number; y: number; zoom: number }; start: Pt }
   | { type: 'pinch'; prevMid: Pt; prevDist: number; camStart: { x: number; y: number; zoom: number } }
 
