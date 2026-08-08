@@ -16,13 +16,6 @@ pub struct DetectedShape {
     pub confidence: f64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct SmoothResult {
-    pub points: Vec<Point>,
-    pub detected_shape: Option<DetectedShape>,
-}
-
-/// 2-pass Gaussian smoothing
 pub fn smooth_points(points: &[Point], passes: usize) -> Vec<Point> {
     if points.len() < 3 {
         return points.to_vec();
@@ -45,7 +38,6 @@ pub fn smooth_points(points: &[Point], passes: usize) -> Vec<Point> {
     result
 }
 
-/// Detect if a set of points forms a recognizable shape
 pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if points.len() < 4 {
         return None;
@@ -69,7 +61,6 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     let first = &points[0];
     let last = &points[points.len() - 1];
 
-    // Check line/arrow
     let line_conf = eval_line(points, first, last);
     if line_conf > 0.85 {
         let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();

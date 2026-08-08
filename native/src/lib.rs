@@ -1,8 +1,6 @@
-mod ai;
-
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use ai::{smooth_points, detect_shape, Point, SmoothResult};
+use ai_core::{smooth_points, detect_shape, Point};
 
 #[napi(object)]
 pub struct JsPoint {

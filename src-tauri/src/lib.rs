@@ -1,6 +1,11 @@
-mod ai;
+use ai_core::{smooth_points, detect_shape, Point};
+use serde::Serialize;
 
-use ai::{smooth_points, detect_shape, Point, SmoothResult};
+#[derive(Serialize)]
+struct SmoothResult {
+    points: Vec<Point>,
+    detected_shape: Option<ai_core::DetectedShape>,
+}
 
 #[tauri::command]
 fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
