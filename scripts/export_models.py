@@ -10,18 +10,27 @@ from skl2onnx.common.data_types import FloatTensorType
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
 LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star"]
 MAX_POINTS = 100
+CACHE_DIR = "samples"
 
 
 def download_quickdraw(label: str, n: int) -> np.ndarray | None:
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    cache_path = os.path.join(CACHE_DIR, f"{label}.npy")
+
+    if os.path.exists(cache_path):
+        print(f"  {label}: using cached ({cache_path})")
+        return np.load(cache_path)[:n]
+
     url = QUICKDRAW_URL.format(label)
     print(f"  Downloading {label}...", end=" ", flush=True)
     try:
         import requests, io
         resp = requests.get(url, timeout=120)
         resp.raise_for_status()
-        data = np.load(io.BytesIO(resp.content))[:n]
-        print(f"{len(data)} samples")
-        return data
+        data = np.load(io.BytesIO(resp.content))
+        np.save(cache_path, data)
+        print(f"{len(data)} samples → cached to {cache_path}")
+        return data[:n]
     except Exception as e:
         print(f"FAILED: {e}")
         return None

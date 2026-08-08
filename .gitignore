@@ -12,3 +12,4 @@ crates/ai-core/Cargo.lock
 *.node
 .venv
 models/*.onnx
+samples/
