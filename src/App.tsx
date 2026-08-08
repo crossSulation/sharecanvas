@@ -8,7 +8,6 @@ import Hint from './components/Hint'
 import LayerPanel from './components/LayerPanel'
 import PerfOverlay from './components/PerfOverlay'
 import AIPanel from './components/AIPanel'
-import AIChatPanel from './components/AIChatPanel'
 import { collab } from './lib/collab'
 import { snapshotHashToDoc } from './lib/serialize'
 import { useStore } from './store'
@@ -58,7 +57,6 @@ export default function App() {
         <Hint />
         <ShareDialog />
         <AIPanel />
-        <AIChatPanel />
       </div>
     </div>
   )
