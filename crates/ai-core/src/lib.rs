@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub mod onnx;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Point {
     pub x: f64,
