@@ -23,6 +23,7 @@
     "server": "node --env-file-if-exists=.env server/index.js"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@react-three/drei": "^10.0.7",
     "@react-three/fiber": "^9.1.2",
     "@tauri-apps/api": "^2.11.1",
