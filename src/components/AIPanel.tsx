@@ -1,55 +1,8 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { smoothPoints, detectShape } from '../lib/aiDraw'
-import { yDeleteItems, yPush, yUpdateStrokePoints, yUpdateItem } from '../lib/yroom'
-import { createId } from '../lib/id'
-import { nextSeq } from '../lib/seq'
+import { beautifySelected } from '../lib/aiBackend'
+import { yUpdateStrokePoints, yUpdateItem } from '../lib/yroom'
 import type { Pt } from '../types'
-
-function extractPoints(points: unknown[]): Pt[] {
-  return points.map((p) => {
-    if (typeof p === 'object' && p !== null && 'x' in p && 'y' in p) {
-      return { x: Number((p as { x: number }).x), y: Number((p as { y: number }).y) }
-    }
-    return { x: 0, y: 0 }
-  }).filter((p) => isFinite(p.x) && isFinite(p.y))
-}
-
-function beautifyAll() {
-  const s = useStore.getState()
-  const strokeIds = s.selected.filter((id) => s.doc.strokes.some((st) => st.id === id))
-  if (!strokeIds.length) return 0
-
-  let count = 0
-  for (const id of strokeIds) {
-    const st = s.doc.strokes.find((x) => x.id === id)
-    if (!st || st.points.length < 3) continue
-
-    const pts = extractPoints(st.points)
-    if (pts.length < 3) continue
-
-    const smoothed = smoothPoints(pts, 2)
-    const detected = detectShape(smoothed)
-
-    if (detected && detected.confidence > 0.85 && pts.length > 10) {
-      yDeleteItems('strokes', [id])
-      yPush('shapes', [{
-        id: createId('sh'),
-        kind: detected.kind,
-        x0: detected.x0, y0: detected.y0,
-        x1: detected.x1, y1: detected.y1,
-        color: st.color,
-        size: st.size,
-        seq: nextSeq(),
-        layer: st.layer,
-      }])
-    } else {
-      yUpdateStrokePoints(id, smoothed)
-    }
-    count++
-  }
-  return count
-}
 
 function alignSelected() {
   const s = useStore.getState()
@@ -102,8 +55,8 @@ export default function AIPanel() {
   const hasStrokes = useStore((s) => s.selected.some((id) => s.doc.strokes.some((st) => st.id === id)))
   const hasMultiple = useStore((s) => s.selected.length >= 2)
 
-  const handleBeautify = () => {
-    const n = beautifyAll()
+  const handleBeautify = async () => {
+    const n = await beautifySelected()
     setMsg(n > 0 ? `已美化 ${n} 条笔画` : '请先选中笔画')
     setTimeout(() => setMsg(''), 2000)
   }
