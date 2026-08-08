@@ -1,152 +1,177 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
+import { useStore } from '../store'
 
+type AIModel = 'none' | 'caption' | 'segment' | 'remove-bg'
 type AIStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-let pipelineInstance: any = null
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let pipelinePromise: Promise<any> | null = null
+const MODEL_CACHE = new Map<string, any>()
 
-async function getPipeline() {
-  if (pipelineInstance) return pipelineInstance
-  if (pipelinePromise) return pipelinePromise
+async function loadModel(modelId: AIModel) {
+  if (MODEL_CACHE.has(modelId)) return MODEL_CACHE.get(modelId)
 
-  pipelinePromise = (async () => {
-    const { pipeline } = await import('@huggingface/transformers')
-    const p = await pipeline('text-generation', 'Xenova/distilgpt2', {
-      device: 'wasm',
-    })
-    pipelineInstance = p
-    return p
-  })()
+  const { pipeline } = await import('@huggingface/transformers')
 
-  return pipelinePromise
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let pipe: any
+  if (modelId === 'caption') {
+    pipe = await pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', { device: 'wasm' })
+  } else if (modelId === 'segment') {
+    pipe = await pipeline('image-segmentation', 'Xenova/detr-resnet-50-panoptic', { device: 'wasm' })
+  } else if (modelId === 'remove-bg') {
+    pipe = await pipeline('image-segmentation', 'Xenova/modnet', { device: 'wasm' })
+  }
+
+  MODEL_CACHE.set(modelId, pipe)
+  return pipe
 }
 
 export default function AIChatPanel() {
   const [status, setStatus] = useState<AIStatus>('idle')
-  const [input, setInput] = useState('')
-  const [outputs, setOutputs] = useState<string[]>([])
-  const [loading_, setLoading] = useState(false)
-  const panelRef = useRef<HTMLDivElement>(null)
+  const [activeModel, setActiveModel] = useState<AIModel>('none')
+  const [result, setResult] = useState<string>('')
+  const [busy, setBusy] = useState(false)
+  const doc = useStore((s) => s.doc)
 
-  const initModel = useCallback(async () => {
-    if (status === 'ready') return
+  const runModel = useCallback(async (modelId: AIModel) => {
+    if (busy) return
+    setActiveModel(modelId)
     setStatus('loading')
+    setBusy(true)
+    setResult('')
+
     try {
-      await getPipeline()
+      const pipe = await loadModel(modelId)
       setStatus('ready')
+
+      if (modelId === 'caption') {
+        const hasContent = doc.strokes.length || doc.shapes.length || doc.texts.length
+        if (!hasContent) {
+          setResult('画布为空，请先画一些内容')
+          setBusy(false)
+          return
+        }
+        const canvas = document.querySelector('canvas')
+        if (!canvas) {
+          setResult('无法获取画布')
+          setBusy(false)
+          return
+        }
+        const imgUrl = canvas.toDataURL('image/png')
+        const output = await pipe(imgUrl)
+        setResult(typeof output === 'string' ? output : output[0]?.generated_text || JSON.stringify(output))
+      } else if (modelId === 'remove-bg') {
+        const canvas = document.querySelector('canvas')
+        if (!canvas) {
+          setResult('无法获取画布')
+          setBusy(false)
+          return
+        }
+        const imgUrl = canvas.toDataURL('image/png')
+        const segments = await pipe(imgUrl)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const personMask = Array.isArray(segments) ? segments.find((s: any) => s.label === 'person' || s.label === 'foreground') : segments
+        if (personMask?.mask) {
+          const maskCanvas = document.createElement('canvas')
+          maskCanvas.width = personMask.mask.width
+          maskCanvas.height = personMask.mask.height
+          const mctx = maskCanvas.getContext('2d')!
+          const img = new Image()
+          await new Promise<void>((resolve) => {
+            img.onload = () => {
+              mctx.drawImage(img, 0, 0)
+              const imageData = mctx.getImageData(0, 0, maskCanvas.width, maskCanvas.height)
+              for (let i = 0; i < imageData.data.length; i += 4) {
+                const maskIdx = i / 4
+                if (personMask.mask.data[maskIdx] === 0) {
+                  imageData.data[i + 3] = 0
+                }
+              }
+              mctx.putImageData(imageData, 0, 0)
+              setResult('背景移除完成')
+              resolve()
+            }
+            img.src = maskCanvas.toDataURL()
+          })
+        } else {
+          setResult('未检测到前景主体')
+        }
+      }
     } catch (err) {
-      console.error('AI model load failed:', err)
       setStatus('error')
-    }
-  }, [status])
-
-  const generate = useCallback(async () => {
-    if (!input.trim()) return
-    setLoading(true)
-    try {
-      const pipe = await getPipeline()
-      const result = await pipe(input, {
-        max_new_tokens: 50,
-        temperature: 0.8,
-        do_sample: true,
-      })
-      const text = result[0]?.generated_text || input
-      setOutputs((prev) => [...prev.slice(-9), text])
-      setInput('')
-    } catch (err) {
-      console.error('Generation failed:', err)
+      setResult(err instanceof Error ? err.message : '模型加载失败')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
-  }, [input])
+  }, [busy, doc])
 
-  const prompts = [
-    '画一只在花园里玩耍的小猫',
-    '画一座未来城市的天际线',
-    '画一棵开满花的樱花树',
-    '画一艘在星空中航行的飞船',
-    '画一个安静的湖边日出',
+  const models = [
+    { id: 'caption' as AIModel, label: '描述画布', desc: 'AI 看图说话', icon: '👁' },
+    { id: 'remove-bg' as AIModel, label: '背景移除', desc: '提取主体抠图', icon: '✂' },
   ]
 
   return (
-    <div className="absolute right-3 bottom-24 z-20">
-      {status === 'idle' && (
-        <button
-          onClick={initModel}
-          className="flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs text-violet-700 hover:bg-violet-100 shadow-sm transition-colors"
-        >
-          <span className="text-[13px]">🤖</span>
-          AI 助手
-        </button>
-      )}
-
-      {status === 'loading' && (
-        <div className="rounded-xl border border-violet-200 bg-white/95 px-3 py-2 shadow-lg">
-          <div className="flex items-center gap-2 text-xs text-violet-600">
-            <span className="animate-spin">⏳</span>
-            正在加载 AI 模型...
-          </div>
+    <div className="fixed right-3 bottom-24 z-20 flex flex-col gap-2 items-end">
+      {activeModel === 'none' && (
+        <div className="flex flex-col gap-1 rounded-xl border border-violet-200 bg-white/95 p-2 shadow-lg">
+          <div className="text-[11px] font-medium text-violet-700 px-1">🤖 AI 工具</div>
+          {models.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => runModel(m.id)}
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-violet-50 transition-colors"
+            >
+              <span className="text-base">{m.icon}</span>
+              <div>
+                <div className="text-[11px] text-zinc-800">{m.label}</div>
+                <div className="text-[10px] text-zinc-400">{m.desc}</div>
+              </div>
+            </button>
+          ))}
         </div>
       )}
 
-      {status === 'error' && (
-        <button
-          onClick={initModel}
-          className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-500"
-        >
-          加载失败，点击重试
-        </button>
-      )}
-
-      {status === 'ready' && (
-        <div ref={panelRef} className="flex flex-col gap-2 rounded-xl border border-violet-200 bg-white/95 p-3 shadow-lg w-64">
+      {activeModel !== 'none' && (
+        <div className="flex flex-col gap-2 rounded-xl border border-violet-200 bg-white/95 p-3 shadow-lg w-56">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-violet-700">🤖 AI 助手</span>
-            <span className="text-[10px] text-violet-400">distilgpt2</span>
+            <span className="text-[11px] font-medium text-violet-700">
+              {models.find((m) => m.id === activeModel)?.icon} {models.find((m) => m.id === activeModel)?.label}
+            </span>
+            <button onClick={() => { setActiveModel('none'); setResult('') }}
+              className="text-[10px] text-zinc-400 hover:text-zinc-600">关闭</button>
           </div>
 
-          {outputs.length > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-lg bg-violet-50 p-2">
-              {outputs.map((o, i) => (
-                <div key={i} className="border-b border-violet-100 py-1 text-[11px] text-zinc-700 last:border-b-0">
-                  {o}
-                </div>
-              ))}
+          {status === 'loading' && (
+            <div className="flex items-center gap-2 text-[11px] text-violet-600">
+              <span className="animate-spin">⏳</span>
+              正在加载模型...
             </div>
           )}
 
-          <p className="text-[10px] text-zinc-400">输入一句话，AI 为你联想扩展：</p>
+          {result && (
+            <div className="rounded-lg bg-violet-50 p-2 text-[11px] text-zinc-700">
+              {result}
+            </div>
+          )}
 
-          <div className="flex gap-1">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && generate()}
-              placeholder="输入提示词..."
-              className="min-w-0 flex-1 rounded-lg border border-zinc-200 px-2 py-1.5 text-[11px] outline-none focus:border-violet-400"
-            />
+          {status === 'ready' && (
             <button
-              onClick={generate}
-              disabled={loading_ || !input.trim()}
-              className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] text-white hover:bg-violet-700 disabled:opacity-40"
+              onClick={() => runModel(activeModel)}
+              disabled={busy}
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] text-white hover:bg-violet-700 disabled:opacity-40"
             >
-              {loading_ ? '...' : '生成'}
+              {busy ? '处理中...' : '再次运行'}
             </button>
-          </div>
+          )}
 
-          <div className="flex flex-wrap gap-1">
-            {prompts.map((p) => (
-              <button
-                key={p}
-                onClick={() => setInput(p)}
-                className="rounded-full border border-violet-100 px-2 py-0.5 text-[10px] text-violet-600 hover:bg-violet-50"
-              >
-                {p.slice(0, 12)}…
-              </button>
-            ))}
-          </div>
+          {status === 'error' && (
+            <button
+              onClick={() => runModel(activeModel)}
+              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-[11px] text-red-500"
+            >
+              重试
+            </button>
+          )}
         </div>
       )}
     </div>
