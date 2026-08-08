@@ -9,6 +9,8 @@ import * as awarenessProtocol from 'y-protocols/awareness'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
 
+import { createRequire } from 'node:module'
+
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const DIST = join(ROOT, 'dist')
@@ -16,12 +18,17 @@ const PORT = Number(process.env.PORT || 8787)
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(ROOT, 'data', 'rooms')
 const REDIS_URL = process.env.REDIS_URL || ''
 let nativeAI = null;
-(async () => {
+(() => {
   try {
-    const mod = await import('../native/index.cjs')
-    nativeAI = mod
+    const { platform, arch } = process
+    const suffix = { darwin: 'darwin', linux: 'linux', win32: 'win32' }[platform] || platform
+    const archName = { arm64: 'arm64', x64: 'x64' }[arch] || arch
+    const ext = platform === 'win32' ? 'msvc' : 'gnu'
+    const filename = `sharecanvas-native.${suffix}-${archName}-${ext}.node`
+    const req = createRequire(import.meta.url)
+    nativeAI = req(join(ROOT, 'native', filename))
     console.log('[ai] Rust native addon loaded')
-  } catch {
+  } catch (e) {
     /* native addon not built */
   }
 })()
