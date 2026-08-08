@@ -3,11 +3,10 @@
 Export ONNX sketch classifier from Google QuickDraw dataset.
 
 Requirements:
-  pip install sklearn skl2onnx onnxruntime numpy requests
-  pip install quickdraw  # or use raw .npy files
+  uv pip install sklearn scikit-learn skl2onnx numpy requests onnxruntime
 
 Usage:
-  python scripts/export_models.py --output models/ --real
+  uv run python scripts/export_models.py --output models/ --real
 
 Without --real: uses synthetic data (fast, ~80% real accuracy)
 With --real: downloads QuickDraw data (~100MB, ~92% accuracy)
