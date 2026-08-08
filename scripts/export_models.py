@@ -11,9 +11,6 @@ QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bit
 LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star"]
 MAX_POINTS = 100
 
-# QuickDraw has: circle, square, line, triangle. Others use synthetic.
-QUICKDRAW_MAP = {"circle": "circle", "square": "square", "line": "line", "triangle": "triangle"}
-
 
 def download_quickdraw(label: str, n: int) -> np.ndarray | None:
     url = QUICKDRAW_URL.format(label)
@@ -140,18 +137,21 @@ def main():
 
     X_list, y_list = [], []
     for i, label in enumerate(LABELS):
-        qd = QUICKDRAW_MAP.get(label)
-        if args.real and qd:
-            data = download_quickdraw(qd, args.samples)
+        pts = None
+        if args.real:
+            data = download_quickdraw(label, args.samples)
             if data is not None:
                 pts = bitmap_to_points(data)
-                X_list.append(pts)
-                y_list.extend([i] * len(pts))
-                continue
-        print(f"  {label}: generating synthetic ({300 if args.real else 300} samples)")
-        synth = gen_synthetic_samples(label, 300)
-        X_list.append(synth)
-        y_list.extend([i] * len(synth))
+
+        if pts is not None and len(pts) > 0:
+            X_list.append(pts)
+            y_list.extend([i] * len(pts))
+        else:
+            if args.real:
+                print(f"  {label}: QuickDraw not available, using synthetic")
+            synth = gen_synthetic_samples(label, 300)
+            X_list.append(synth)
+            y_list.extend([i] * len(synth))
 
     X = np.vstack(X_list).astype(np.float32)
     y = np.array(y_list)
