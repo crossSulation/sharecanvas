@@ -13,7 +13,7 @@ MAX_POINTS = 100
 CACHE_DIR = "samples"
 
 
-def download_quickdraw(label: str, n: int) -> np.ndarray | None:
+def download_quickdraw(label, n):
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_path = os.path.join(CACHE_DIR, f"{label}.npy")
 
@@ -36,7 +36,7 @@ def download_quickdraw(label: str, n: int) -> np.ndarray | None:
         return None
 
 
-def bitmap_to_points(bitmaps: np.ndarray) -> np.ndarray:
+def bitmap_to_points(bitmaps):
     result = np.zeros((len(bitmaps), MAX_POINTS * 2), dtype=np.float32)
     for i, bm in enumerate(bitmaps):
         img = bm.reshape(28, 28)
@@ -127,7 +127,7 @@ GENERATORS = {
 }
 
 
-def gen_synthetic_samples(label: str, n: int = 300) -> np.ndarray:
+def gen_synthetic_samples(label, n=300):
     gen = GENERATORS[label]
     return np.array(
         [gen() + np.random.randn(MAX_POINTS * 2).astype(np.float32) * 0.03

@@ -21,7 +21,7 @@
     "native:build": "cd native && napi build --platform --release",
     "ai:check": "cd crates/ai-core && cargo check",
     "ai:test": "cd crates/ai-core && cargo test",
-    "models:export": "uv venv && uv pip install -r scripts/requirements.txt && uv run python scripts/export_models.py --output models/ --real",
+    "models:export": "test -d .venv || uv venv --python 3.11 && uv pip install -r scripts/requirements.txt && uv run python scripts/export_models.py --output models/ --real",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
     "server": "node --env-file-if-exists=.env server/index.js"
