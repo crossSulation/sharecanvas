@@ -16,6 +16,8 @@ pub struct DetectedShape {
     pub x1: f64,
     pub y1: f64,
     pub confidence: f64,
+    /// 函数参数: [a, b] for linear, [a, b, c] for quadratic
+    pub func_params: Option<Vec<f64>>,
 }
 
 pub fn smooth_points(points: &[Point], passes: usize) -> Vec<Point> {
@@ -67,26 +69,6 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if line_conf > 0.85 {
         let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
         let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
-        if angle > -30.0 && angle < 30.0 && dist > 30.0 {
-            return Some(DetectedShape {
-                kind: "arrow".into(),
-                x0: first.x, y0: first.y,
-                x1: last.x, y1: last.y,
-                confidence: line_conf,
-            });
-        }
-        return Some(DetectedShape {
-            kind: "line".into(),
-            x0: first.x, y0: first.y,
-            x1: last.x, y1: last.y,
-            confidence: line_conf,
-        });
-    }
-
-    let line_conf = eval_line(points, first, last);
-    if line_conf > 0.85 {
-        let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
-        let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
         let kind = if angle > -30.0 && angle < 30.0 && dist > 30.0 { "arrow" } else { "line" };
         log_decision("pure","line/arrow", kind, line_conf);
         return Some(DetectedShape {
@@ -94,6 +76,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
             x0: first.x, y0: first.y,
             x1: last.x, y1: last.y,
             confidence: line_conf,
+            func_params: None,
         });
     }
 
@@ -104,6 +87,8 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
     if let Some(s) = try_star(points, bbox) { return Some(s); }
+    if let Some(s) = try_linear(points, bbox) { return Some(s); }
+    if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
 
     log_decision("pure","any", "none", 0.0);
     None
@@ -279,6 +264,7 @@ fn try_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<Detected
             kind: "triangle".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -295,6 +281,7 @@ fn try_rect(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShap
             kind: "rect".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -311,6 +298,7 @@ fn try_ellipse(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
             kind: "ellipse".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -327,6 +315,7 @@ fn try_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
             kind: "diamond".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -343,6 +332,7 @@ fn try_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<Det
             kind: "parallelogram".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -359,6 +349,7 @@ fn try_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
             kind: "hexagon".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
         });
     }
     None
@@ -397,6 +388,95 @@ fn try_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShap
             kind: "star".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
+            func_params: None,
+        });
+    }
+    None
+}
+
+fn eval_linear(points: &[Point]) -> (f64, f64, f64) {
+    let n = points.len() as f64;
+    if n < 3.0 { return (0.0, 0.0, 0.0); }
+    let mut sx = 0.0f64; let mut sy = 0.0f64;
+    let mut sxy = 0.0f64; let mut sx2 = 0.0f64; let mut sy2 = 0.0f64;
+    for p in points {
+        sx += p.x; sy += p.y;
+        sxy += p.x * p.y; sx2 += p.x * p.x; sy2 += p.y * p.y;
+    }
+    let denom = n * sx2 - sx * sx;
+    if denom.abs() < f64::EPSILON { return (0.0, 0.0, 0.0); }
+    let a = (n * sxy - sx * sy) / denom;
+    let b = (sy - a * sx) / n;
+    let y_mean = sy / n;
+    let mut ss_res = 0.0f64; let mut ss_tot = 0.0f64;
+    for p in points {
+        let y_pred = a * p.x + b;
+        ss_res += (p.y - y_pred).powi(2);
+        ss_tot += (p.y - y_mean).powi(2);
+    }
+    let r2 = if ss_tot < f64::EPSILON { 0.0 } else { 1.0 - ss_res / ss_tot };
+    (a, b, r2.max(0.0))
+}
+
+fn eval_quadratic(points: &[Point]) -> (f64, f64, f64, f64) {
+    let n = points.len() as f64;
+    if n < 5.0 { return (0.0, 0.0, 0.0, 0.0); }
+    let mut sx = 0.0f64; let mut sx2 = 0.0f64; let mut sx3 = 0.0f64; let mut sx4 = 0.0f64;
+    let mut sy = 0.0f64; let mut sxy = 0.0f64; let mut sx2y = 0.0f64; let mut sy2 = 0.0f64;
+    for p in points {
+        let x = p.x; let x2 = x * x; let x3 = x2 * x; let x4 = x3 * x;
+        sx += x; sx2 += x2; sx3 += x3; sx4 += x4;
+        sy += p.y; sxy += x * p.y; sx2y += x2 * p.y; sy2 += p.y * p.y;
+    }
+    let d = n * (sx2 * sx4 - sx3 * sx3) - sx * (sx * sx4 - sx2 * sx3) + sx2 * (sx * sx3 - sx2 * sx2);
+    if d.abs() < f64::EPSILON { return (0.0, 0.0, 0.0, 0.0); }
+    let a = (n * (sx2 * sx2y - sx3 * sxy) - sx * (sx * sx2y - sx3 * sy) + sx2 * (sx * sxy - sx2 * sy)) / d;
+    let b = (n * (sx4 * sxy - sx3 * sx2y) - sx * (sx4 * sy - sx2 * sx2y) + sx2 * (sx3 * sy - sx * sx2y)) / d;
+    let c = (sy - a * sx2 - b * sx) / n;
+    let y_mean = sy / n;
+    let mut ss_res = 0.0f64; let mut ss_tot = 0.0f64;
+    for p in points {
+        let y_pred = a * p.x * p.x + b * p.x + c;
+        ss_res += (p.y - y_pred).powi(2);
+        ss_tot += (p.y - y_mean).powi(2);
+    }
+    let r2 = if ss_tot < f64::EPSILON { 0.0 } else { 1.0 - ss_res / ss_tot };
+    (a, b, c, r2.max(0.0))
+}
+
+fn try_linear(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let (a, b, r2) = eval_linear(points);
+    if r2 > 0.92 {
+        log_decision("pure","linear_func", "linear", r2);
+        let range = bbox.2 - bbox.0;
+        let sx = if range < 50.0 { bbox.0 - 10.0 } else { bbox.0 };
+        let ex = if range < 50.0 { bbox.2 + 10.0 } else { bbox.2 };
+        return Some(DetectedShape {
+            kind: "linear".into(),
+            x0: sx, y0: a * sx + b,
+            x1: ex, y1: a * ex + b,
+            confidence: r2,
+            func_params: Some(vec![a, b]),
+        });
+    }
+    None
+}
+
+fn try_quadratic(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let (a, b, c, r2) = eval_quadratic(points);
+    if r2 > 0.88 {
+        log_decision("pure","quadratic_func", "quadratic", r2);
+        let range = bbox.2 - bbox.0;
+        let sx = if range < 50.0 { bbox.0 - 5.0 } else { bbox.0 };
+        let ex = if range < 50.0 { bbox.2 + 5.0 } else { bbox.2 };
+        let sy = a * sx * sx + b * sx + c;
+        let ey = a * ex * ex + b * ex + c;
+        return Some(DetectedShape {
+            kind: "quadratic".into(),
+            x0: sx, y0: sy,
+            x1: ex, y1: ey,
+            confidence: r2,
+            func_params: Some(vec![a, b, c]),
         });
     }
     None

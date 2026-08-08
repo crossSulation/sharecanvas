@@ -188,6 +188,7 @@ mod imp {
                 x1: xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
                 y1: ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
                 confidence: max_val as f64,
+                func_params: None,
             }))
         }
     }
