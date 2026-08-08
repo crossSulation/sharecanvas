@@ -29,10 +29,14 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
   }
 
   if (typeof fetch !== 'undefined') {
+    const testUrl = `${location.protocol}//${location.host}/api/ai/beautify`
     try {
-      const res = await fetch('/api/health')
-      const health = await res.json()
-      if (health.ai) {
+      const res = await fetch(testUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ points: [{ x: 0, y: 0 }] }),
+      })
+      if (res.ok || res.status === 400 || res.status === 503) {
         return {
           name: 'native-server',
           backend: {
@@ -48,7 +52,7 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
         }
       }
     } catch {
-      /* server AI not available */
+      /* server AI not reachable */
     }
   }
 
