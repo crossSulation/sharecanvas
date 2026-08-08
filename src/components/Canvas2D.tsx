@@ -877,6 +877,7 @@ export default function Canvas2D() {
         if (b.x1 >= x0 && b.x0 <= x1 && b.y1 >= y0 && b.y0 <= y1) selected.push(t.id)
       }
       s.select(selected)
+      s.setBoxSelecting(false)
       interactionRef.current = null
       drawRef.current()
       return

@@ -36,7 +36,7 @@ export const createCanvasSlice: StateCreator<CanvasState, [], [], CanvasSlice> =
   boxSelecting: false,
 
   setCamera: (p) => set((s) => ({ camera: { ...s.camera, ...p } })),
-  setTool: (t) => set({ tool: t }),
+  setTool: (t) => set({ tool: t, boxSelecting: false }),
   setColor: (c) => set({ color: c }),
   setSize: (s) => set({ size: s }),
   setBrushStyle: (k) => set({ brushStyle: k, tool: 'pen' }),
