@@ -36,7 +36,8 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: [{ x: 0, y: 0 }] }),
       })
-      if (res.ok || res.status === 400 || res.status === 503) {
+      const contentType = res.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
         return {
           name: 'native-server',
           backend: {
