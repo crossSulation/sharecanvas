@@ -53,4 +53,3 @@ function loadBinding() {
 loadBinding()
 
 module.exports.beautifyStroke = nativeBinding.beautifyStroke
-module.exports.beautify_stroke = nativeBinding.beautify_stroke
