@@ -7,6 +7,8 @@ import ShareDialog from './components/ShareDialog'
 import Hint from './components/Hint'
 import LayerPanel from './components/LayerPanel'
 import PerfOverlay from './components/PerfOverlay'
+import WebRTCPanel from './components/WebRTCPanel'
+import AIPanel from './components/AIPanel'
 import { collab } from './lib/collab'
 import { snapshotHashToDoc } from './lib/serialize'
 import { useStore } from './store'
@@ -55,6 +57,8 @@ export default function App() {
         {debug && <PerfOverlay />}
         <Hint />
         <ShareDialog />
+        <WebRTCPanel />
+        <AIPanel />
       </div>
     </div>
   )

@@ -31,9 +31,9 @@
 
 ## 长期规划（3-6 月）
 
-- [ ] L1: PWA 化（Service Worker + Web App Manifest）
-- [ ] L2: 协作增强（评论/标注、版本历史 diff、权限管理、只读分享）
-- [ ] L3: 模板市场（流程图、思维导图、故事板等预置模板）
+- [x] L1: PWA 化（Service Worker + Web App Manifest）
+- [x] L2: 协作增强（评论/标注、版本历史 diff、权限管理、只读分享）
+- [x] L3: 模板市场（流程图、思维导图、故事板等预置模板）
 - [ ] L4: WebRTC 音视频通话
 - [ ] L5: AI 辅助绘图（草图补全、风格迁移、文字转图片）
 - [ ] L6: 导出格式扩展（PNG/SVG/PDF）

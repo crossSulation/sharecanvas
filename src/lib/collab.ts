@@ -1,6 +1,7 @@
 import { WebsocketProvider } from 'y-websocket'
 import { yDoc } from './yroom'
 import type { RemoteUser, WsStatus } from '../types'
+import { useStore } from '../store'
 
 export interface CollabHandlers {
   onStatus(s: WsStatus): void
@@ -96,10 +97,13 @@ class Collab {
 
     this.emitUsers()
     this.handlers?.onWelcome(room, String(provider.awareness.clientID), this.users())
+
+    this.connectWebRTC(room)
   }
 
   disconnect(): void {
     this.intentionalDisconnect = true
+    this.disconnectWebRTC()
     if (this.provider) {
       this.provider.destroy()
       this.provider = null
@@ -156,8 +160,46 @@ class Collab {
     this.provider.awareness.setLocalStateField('cursor', { x, y })
   }
 
-  // 兼容旧调用：Yjs 每次事务自动同步，无需手动 flush
-  flush(): void {}
+  private webrtcSocket: WebSocket | null = null
+  private webrtcHandlers: ((msg: { from: string; data: unknown }) => void)[] = []
+
+  sendWebRTC(to: string, data: unknown): void {
+    const ws = this.webrtcSocket
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const self = useStore.getState()
+    ws.send(JSON.stringify({ type: 'webrtc', to, from: self.selfId, data }))
+  }
+
+  onWebRTC(handler: (msg: { from: string; data: unknown }) => void): () => void {
+    this.webrtcHandlers.push(handler)
+    return () => {
+      this.webrtcHandlers = this.webrtcHandlers.filter((h) => h !== handler)
+    }
+  }
+
+  private connectWebRTC(room: string): void {
+    this.disconnectWebRTC()
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${location.host}/ws/${encodeURIComponent(room)}?rtc=1`
+    const ws = new WebSocket(wsUrl)
+    this.webrtcSocket = ws
+    ws.onmessage = (e) => {
+      if (typeof e.data === 'string') {
+        try {
+          const msg = JSON.parse(e.data)
+          if (msg.type === 'webrtc') {
+            this.webrtcHandlers.forEach((h) => h(msg))
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    ws.onclose = () => { this.webrtcSocket = null }
+  }
+
+  private disconnectWebRTC(): void {
+    this.webrtcSocket?.close()
+    this.webrtcSocket = null
+  }
 }
 
 export const collab = new Collab()

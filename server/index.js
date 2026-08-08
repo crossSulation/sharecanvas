@@ -152,6 +152,15 @@ function getYDoc(docName) {
   return doc
 }
 
+function relayWebRTC(doc, from, msg) {
+  const payload = JSON.stringify(msg)
+  for (const c of doc.conns) {
+    if (c !== from && c.readyState === WebSocket.OPEN) {
+      c.send(payload)
+    }
+  }
+}
+
 function setupWSConnection(conn, req) {
   conn.binaryType = 'arraybuffer'
   conn.clientIDs = new Set()
@@ -185,6 +194,16 @@ function setupWSConnection(conn, req) {
 
   conn.on('message', (message) => {
     try {
+      if (typeof message === 'string') {
+        try {
+          const msg = JSON.parse(message)
+          if (msg && msg.type === 'webrtc') {
+            relayWebRTC(doc, conn, msg)
+            return
+          }
+        } catch { /* not JSON */ }
+      }
+
       const encoder = encoding.createEncoder()
       const decoder = decoding.createDecoder(new Uint8Array(message))
       const messageType = decoding.readVarUint(decoder)
