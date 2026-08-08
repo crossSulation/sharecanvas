@@ -18,6 +18,7 @@ import {
   drawGrid,
   eraserRadius,
   findItem,
+  getResizeCursor,
   getSelectionBounds,
   hitResizeHandle,
   hitShape,
@@ -27,7 +28,7 @@ import {
   rasterizeLayerSync,
   roundRectPath,
 } from './canvasHelpers'
-import type { Interaction, ItemRef, LayerCache, RasterParams } from './canvasHelpers'
+import type { Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
 
 export default function Canvas2D() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -55,6 +56,7 @@ export default function Canvas2D() {
   const interactionRef = useRef<Interaction | null>(null)
   const spaceRef = useRef(false)
   const hoverRef = useRef<Pt | null>(null)
+  const hoverHandleRef = useRef<ResizeHandle | null>(null)
   const viewportRef = useRef({ w: 0, h: 0 })
   const drawRef = useRef<() => void>(() => {})
   // 远端用户光标的平滑显示位置（世界坐标，逐帧向目标收敛）
@@ -239,7 +241,10 @@ export default function Canvas2D() {
       if (cached?.ready) {
         const dx = (cached.cam.x - halfW * MARGIN - st.camera.x) * zoom * dpr + hw * dpr
         const dy = (cached.cam.y - halfH * MARGIN - st.camera.y) * zoom * dpr + hh * dpr
+        const prevComposite = ctx.globalCompositeOperation
+        ctx.globalCompositeOperation = (layer.blendMode || 'source-over') as GlobalCompositeOperation
         ctx.drawImage(cached.canvas, dx, dy)
+        ctx.globalCompositeOperation = prevComposite
       }
 
       // 手势覆盖层插在该层之后，保证正确 z 序（绘制中/移动中的内容）
@@ -268,18 +273,12 @@ export default function Canvas2D() {
         ctx.lineWidth = 1.5 / zoom
         ctx.strokeRect(selBounds.x0, selBounds.y0, selBounds.x1 - selBounds.x0, selBounds.y1 - selBounds.y0)
 
-        const handleSize = 10 / zoom
+        const handleSize = 8 / zoom
         const hs = handleSize / 2
-        const cx = (selBounds.x0 + selBounds.x1) / 2
-        const cy = (selBounds.y0 + selBounds.y1) / 2
         const handlePts = [
           { x: selBounds.x0, y: selBounds.y0 },
-          { x: cx, y: selBounds.y0 },
           { x: selBounds.x1, y: selBounds.y0 },
-          { x: selBounds.x0, y: cy },
-          { x: selBounds.x1, y: cy },
           { x: selBounds.x0, y: selBounds.y1 },
-          { x: cx, y: selBounds.y1 },
           { x: selBounds.x1, y: selBounds.y1 },
         ]
         for (const hp of handlePts) {
@@ -694,6 +693,12 @@ export default function Canvas2D() {
     hoverRef.current = w
     collab.sendCursor(w.x, w.y)
     const s = useStore.getState()
+    if (s.tool === 'select' && s.selected.length) {
+      const sb = getSelectionBounds(s.doc, s.selected, s.camera.zoom)
+      hoverHandleRef.current = sb ? hitResizeHandle(w, sb, s.camera.zoom) : null
+    } else {
+      hoverHandleRef.current = null
+    }
     const it = interactionRef.current
 
     if (it?.type === 'pan') {
@@ -758,8 +763,10 @@ export default function Canvas2D() {
       if (h.includes('n')) newBounds.y0 = b.y0 + dy
       const scaleX = (newBounds.x1 - newBounds.x0) / (b.x1 - b.x0)
       const scaleY = (newBounds.y1 - newBounds.y0) / (b.y1 - b.y0)
-      const offsetX = newBounds.x0 - b.x0
-      const offsetY = newBounds.y0 - b.y0
+      const anchorX = h.includes('e') ? b.x0 : b.x1
+      const anchorY = h.includes('s') ? b.y0 : b.y1
+      const offsetX = anchorX * (1 - scaleX)
+      const offsetY = anchorY * (1 - scaleY)
       const items = s.selected.map((id) => findItem(s.doc, id)).filter((x): x is ItemRef => x !== null)
       for (const ref of items) {
         const item = ref.item
@@ -909,9 +916,13 @@ export default function Canvas2D() {
     }
   }
 
+  // eslint-disable-next-line react-hooks/refs -- set in onPointerMove, read for cursor
+  const handleHover = hoverHandleRef.current
   const cursor =
-    tool === 'select'
-      ? selected.length ? 'crosshair' : 'default'
+    handleHover
+      ? getResizeCursor(handleHover)
+      : tool === 'select'
+        ? selected.length ? 'crosshair' : 'default'
       : tool === 'hand'
       ? 'grab'
       : tool === 'text'

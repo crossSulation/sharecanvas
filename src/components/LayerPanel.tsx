@@ -29,6 +29,19 @@ function LayerList() {
   const setLayerVisible = useStore((s) => s.setLayerVisible)
   const setLayerLocked = useStore((s) => s.setLayerLocked)
   const setLayerOpacity = useStore((s) => s.setLayerOpacity)
+  const setLayerBlendMode = useStore((s) => s.setLayerBlendMode)
+
+  const BLEND_MODES = [
+    { value: 'source-over', label: '正常' },
+    { value: 'multiply', label: '正片叠底' },
+    { value: 'screen', label: '滤色' },
+    { value: 'overlay', label: '叠加' },
+    { value: 'darken', label: '变暗' },
+    { value: 'lighten', label: '变亮' },
+    { value: 'color-dodge', label: '颜色减淡' },
+    { value: 'color-burn', label: '颜色加深' },
+    { value: 'difference', label: '差值' },
+  ]
 
   return (
     <div className="scroll-thin flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto pr-0.5">
@@ -161,6 +174,18 @@ function LayerList() {
               <span className="w-8 text-right text-[10px] text-zinc-400">
                 {Math.round(l.opacity * 100)}%
               </span>
+            </div>
+            <div className="mt-1 flex items-center gap-1 pl-7">
+              <select
+                value={l.blendMode || 'source-over'}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setLayerBlendMode(l.id, e.target.value)}
+                className="w-full rounded border border-zinc-200 bg-transparent py-0.5 text-[10px] text-zinc-500 outline-none"
+              >
+                {BLEND_MODES.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
             </div>
           </div>
         )

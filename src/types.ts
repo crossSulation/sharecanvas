@@ -62,9 +62,10 @@ export interface LayerInfo {
   visible: boolean
   locked: boolean
   opacity: number
+  blendMode?: string
 }
 
-export type ObjKind = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'tube'
+export type ObjKind = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'torus' | 'plane' | 'tube' | 'model'
 
 export interface Obj3D {
   id: string
@@ -76,6 +77,8 @@ export interface Obj3D {
   strokeId?: string
   tubePoints?: number[][]
   tubeRadius?: number
+  modelData?: string
+  modelName?: string
 }
 
 export interface Doc {

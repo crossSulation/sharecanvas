@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, type ThreeEvent } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three-stdlib'
 import { useStore } from '../store'
 import { createId } from '../lib/id'
 import { yDeleteItems, yPush } from '../lib/yroom'
@@ -33,7 +34,47 @@ function Geometry({ obj }: { obj: Obj3D }) {
     case 'tube': {
       return <TubeGeometry obj={obj} />
     }
+    case 'model':
+      return null
   }
+}
+
+function ModelMesh({ obj }: { obj: Obj3D }) {
+  const [scene, setScene] = useState<THREE.Group | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    if (!obj.modelData) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setScene(null)
+      return
+    }
+    try {
+      const bin = Uint8Array.from(atob(obj.modelData), (c) => c.charCodeAt(0))
+      const loader = new GLTFLoader()
+      loader.parse(bin.buffer, '', (gltf) => {
+        setError(false)
+        setScene(gltf.scene)
+      }, () => {
+        setError(true)
+        setScene(null)
+      })
+    } catch {
+      setError(true)
+      setScene(null)
+    }
+  }, [obj.modelData])
+
+  if (error) {
+    return (
+      <mesh>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#ef4444" wireframe />
+      </mesh>
+    )
+  }
+  if (!scene) return null
+  return <primitive object={scene} />
 }
 
 function TubeGeometry({ obj }: { obj: Obj3D }) {
@@ -72,6 +113,22 @@ function MeshObj({ obj, onLockChange }: { obj: Obj3D; onLockChange: (v: boolean)
     onLockChange(false)
   }
 
+  if (obj.kind === 'model') {
+    return (
+      <group
+        position={obj.pos}
+        rotation={obj.rot}
+        scale={obj.scale.map((s) => s * 1.2) as [number, number, number]}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+      >
+        <ModelMesh obj={obj} />
+      </group>
+    )
+  }
+
   return (
     <mesh
       position={obj.pos}
@@ -108,7 +165,7 @@ function PropertiesPanel() {
     <div className="animate-fade-up absolute right-3 top-3 z-20 w-56 rounded-2xl border border-zinc-200 bg-white/95 p-3 shadow-lg shadow-zinc-900/5 backdrop-blur">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-semibold text-zinc-800">
-          {ADD_KINDS.find((k) => k.kind === obj.kind)?.label ?? '立体涂鸦'}
+          {obj.modelName || (ADD_KINDS.find((k) => k.kind === obj.kind)?.label ?? '立体涂鸦')}
         </span>
         <div className="flex gap-1">
           <button
@@ -189,10 +246,43 @@ export default function View3D() {
   const selected = useStore((s) => s.selected)
   const [orbitLock, setOrbitLock] = useState(false)
   const lockRef = useRef(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const setLock = useCallback((v: boolean) => {
     lockRef.current = v
     setOrbitLock(v)
   }, [])
+
+  const importModel = () => {
+    const input = fileInputRef.current
+    if (!input) return
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file || !file.name.endsWith('.glb') && !file.name.endsWith('.gltf')) return
+      try {
+        const buffer = await file.arrayBuffer()
+        let bin = ''
+        const bytes = new Uint8Array(buffer)
+        for (let i = 0; i < bytes.length; i += 0x8000) {
+          bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+        }
+        const modelData = btoa(bin)
+        const color = useStore.getState().color
+        yPush('objects', [{
+          id: createId('o'),
+          kind: 'model' as const,
+          pos: [0, 0.8, 0],
+          rot: [0, 0, 0],
+          scale: [1, 1, 1],
+          color,
+          modelData,
+          modelName: file.name,
+        }])
+      } catch (err) {
+        console.error('model import failed:', err)
+      }
+    }
+    input.click()
+  }
 
   const convertStrokes = () => {
     const s = useStore.getState()
@@ -254,6 +344,14 @@ export default function View3D() {
           </button>
         ))}
         <div className="mx-0.5 h-5 w-px bg-zinc-200" />
+        <input ref={fileInputRef} type="file" accept=".glb,.gltf" className="hidden" />
+        <button
+          onClick={importModel}
+          title="导入 GLB/GLTF 3D 模型"
+          className="pointer-events-auto rounded-lg bg-emerald-50 px-2.5 py-1.5 text-[11px] text-emerald-700 transition-colors hover:bg-emerald-100"
+        >
+          导入模型
+        </button>
         <button
           onClick={convertStrokes}
           disabled={!selected.length}

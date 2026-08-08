@@ -22,6 +22,7 @@ export interface LayerSlice {
   setLayerVisible(id: string, v: boolean): void
   setLayerLocked(id: string, v: boolean): void
   setLayerOpacity(id: string, v: number): void
+  setLayerBlendMode(id: string, v: string): void
 }
 
 export const createLayerSlice: StateCreator<CanvasState, [], [], LayerSlice> = (set, get) => ({
@@ -82,4 +83,5 @@ export const createLayerSlice: StateCreator<CanvasState, [], [], LayerSlice> = (
   setLayerVisible: (id, v) => yUpdateItem('layers', id, { visible: v }),
   setLayerLocked: (id, v) => yUpdateItem('layers', id, { locked: v }),
   setLayerOpacity: (id, v) => yUpdateItem('layers', id, { opacity: v }),
+  setLayerBlendMode: (id, v) => yUpdateItem('layers', id, { blendMode: v }),
 })

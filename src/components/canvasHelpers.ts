@@ -342,19 +342,13 @@ export function getSelectionBounds(doc: Doc, selected: string[], zoom: number): 
 }
 
 export function hitResizeHandle(w: Pt, bounds: { x0: number; y0: number; x1: number; y1: number }, zoom: number): ResizeHandle | null {
-  const handleSize = 10 / zoom
+  const handleSize = 8 / zoom
   const hs = handleSize / 2
-  const cx = (bounds.x0 + bounds.x1) / 2
-  const cy = (bounds.y0 + bounds.y1) / 2
 
   const handles: { h: ResizeHandle; x: number; y: number }[] = [
     { h: 'nw', x: bounds.x0, y: bounds.y0 },
-    { h: 'n', x: cx, y: bounds.y0 },
     { h: 'ne', x: bounds.x1, y: bounds.y0 },
-    { h: 'w', x: bounds.x0, y: cy },
-    { h: 'e', x: bounds.x1, y: cy },
     { h: 'sw', x: bounds.x0, y: bounds.y1 },
-    { h: 's', x: cx, y: bounds.y1 },
     { h: 'se', x: bounds.x1, y: bounds.y1 },
   ]
 
