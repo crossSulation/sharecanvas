@@ -18,8 +18,31 @@ async function getBackend(): Promise<BackendAI | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
   } catch {
-    return null
+    /* not Tauri */
   }
+
+  if (typeof fetch !== 'undefined') {
+    try {
+      const res = await fetch('/api/health')
+      const health = await res.json()
+      if (health.ai) {
+        return {
+          beautify_stroke: async (args) => {
+            const r = await fetch('/api/ai/beautify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(args),
+            })
+            return r.json()
+          },
+        }
+      }
+    } catch {
+      /* server AI not available */
+    }
+  }
+
+  return null
 }
 
 function extractPoints(points: unknown[]): Pt[] {

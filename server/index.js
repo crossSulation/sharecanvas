@@ -15,6 +15,16 @@ const DIST = join(ROOT, 'dist')
 const PORT = Number(process.env.PORT || 8787)
 const DATA_DIR = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(ROOT, 'data', 'rooms')
 const REDIS_URL = process.env.REDIS_URL || ''
+let nativeAI = null;
+(async () => {
+  try {
+    const mod = await import('../native/index.cjs')
+    nativeAI = mod
+    console.log('[ai] Rust native addon loaded')
+  } catch {
+    /* native addon not built */
+  }
+})()
 mkdirSync(DATA_DIR, { recursive: true })
 
 let redisPersistence = null
@@ -288,7 +298,29 @@ const server = http.createServer((req, res) => {
       rooms: docs.size,
       uptime: Math.round(process.uptime()),
       redis: !!redisPersistence,
+      ai: !!nativeAI,
     }))
+    return
+  }
+  if (url.pathname === '/api/ai/beautify' && req.method === 'POST') {
+    if (!nativeAI) {
+      res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({ error: 'AI addon not available' }))
+      return
+    }
+    let body = ''
+    req.on('data', (chunk) => body += chunk)
+    req.on('end', () => {
+      try {
+        const { points } = JSON.parse(body)
+        const result = nativeAI.beautifyStroke(points || [])
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(result))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: err?.message }))
+      }
+    })
     return
   }
   handleStatic(req, res).catch(() => {
