@@ -68,6 +68,50 @@ function extractPoints(points: unknown[]): Pt[] {
   }).filter((p) => isFinite(p.x) && isFinite(p.y))
 }
 
+function regeneratePoints(shape: { kind: string; x0: number; x1: number; funcParams?: number[] }): Pt[] {
+  const params = shape.funcParams
+  if (!params) return []
+  const n = 100
+  const pts: Pt[] = []
+  for (let i = 0; i <= n; i++) {
+    const t = i / n
+    const x = shape.x0 + t * (shape.x1 - shape.x0)
+    let y: number
+    if (shape.kind === 'linear' && params.length >= 2) {
+      y = params[0]! * x + params[1]!
+    } else if (shape.kind === 'quadratic' && params.length >= 3) {
+      y = params[0]! * x * x + params[1]! * x + params[2]!
+    } else {
+      return []
+    }
+    pts.push({ x, y })
+  }
+  return pts
+}
+
+function handleDetected(id: string, detected: { kind: string; x0: number; y0: number; x1: number; y1: number; funcParams?: number[] }, strokeColor: string, strokeSize: number, strokeLayer?: string) {
+  const isFunc = (detected.kind === 'linear' || detected.kind === 'quadratic') && detected.funcParams
+  if (isFunc) {
+    const newPts = regeneratePoints(detected)
+    if (newPts.length > 0) {
+      yUpdateStrokePoints(id, newPts)
+      return 'func'
+    }
+  }
+  yDeleteItems('strokes', [id])
+  yPush('shapes', [{
+    id: createId('sh'),
+    kind: detected.kind,
+    x0: detected.x0, y0: detected.y0,
+    x1: detected.x1, y1: detected.y1,
+    color: strokeColor,
+    size: strokeSize,
+    seq: nextSeq(),
+    layer: strokeLayer,
+  }])
+  return 'shape'
+}
+
 export async function beautifySelected(): Promise<number> {
   const t0 = performance.now()
   const s = useStore.getState()
@@ -101,22 +145,13 @@ export async function beautifySelected(): Promise<number> {
       const detected = result.detected_shape
 
       if (detected && detected.confidence > 0.85 && pts.length > 10) {
-        yDeleteItems('strokes', [id])
-        yPush('shapes', [{
-          id: createId('sh'),
-          kind: detected.kind,
-          x0: detected.x0, y0: detected.y0,
-          x1: detected.x1, y1: detected.y1,
-          color: st.color,
-          size: st.size,
-          seq: nextSeq(),
-          layer: st.layer,
-        }])
-        shapeCount++
+        const result = handleDetected(id, detected, st.color, st.size, st.layer)
         console.log(
-          `  %c→ shape %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
-          'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+          `  %c→ ${result} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+          result === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
         )
+        if (result === 'func') smoothedCount++
+        else shapeCount++
       } else {
         yUpdateStrokePoints(id, smoothed)
         smoothedCount++
@@ -126,22 +161,13 @@ export async function beautifySelected(): Promise<number> {
       const detected = detectShape(smoothed)
 
       if (detected && detected.confidence > 0.85 && pts.length > 10) {
-        yDeleteItems('strokes', [id])
-        yPush('shapes', [{
-          id: createId('sh'),
-          kind: detected.kind,
-          x0: detected.x0, y0: detected.y0,
-          x1: detected.x1, y1: detected.y1,
-          color: st.color,
-          size: st.size,
-          seq: nextSeq(),
-          layer: st.layer,
-        }])
-        shapeCount++
+        const result = handleDetected(id, detected, st.color, st.size, st.layer)
         console.log(
-          `  %c→ shape %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
-          'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+          `  %c→ ${result} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+          result === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
         )
+        if (result === 'func') smoothedCount++
+        else shapeCount++
       } else {
         yUpdateStrokePoints(id, smoothed)
         smoothedCount++

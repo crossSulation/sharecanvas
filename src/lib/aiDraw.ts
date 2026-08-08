@@ -63,12 +63,13 @@ export function smoothPoints(points: Pt[], passes = 2): Pt[] {
 }
 
 export interface DetectedShape {
-  kind: 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line'
+  kind: 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line' | 'linear' | 'quadratic'
   x0: number
   y0: number
   x1: number
   y1: number
   confidence: number
+  funcParams?: number[]
 }
 
 export function detectShape(points: Pt[]): DetectedShape | null {
