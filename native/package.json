@@ -1,0 +1,8 @@
+{
+  "name": "sharecanvas-native",
+  "version": "0.1.0",
+  "napi": {
+    "name": "sharecanvas-native",
+    "triples": {}
+  }
+}

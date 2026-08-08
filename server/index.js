@@ -21,13 +21,24 @@ let nativeAI = null;
 (() => {
   try {
     const { platform, arch } = process
-    const suffix = { darwin: 'darwin', linux: 'linux', win32: 'win32' }[platform] || platform
-    const archName = { arm64: 'arm64', x64: 'x64' }[arch] || arch
-    const ext = platform === 'win32' ? 'msvc' : 'gnu'
-    const filename = `sharecanvas-native.${suffix}-${archName}-${ext}.node`
+    const osMap = { darwin: 'darwin', linux: 'linux', win32: 'win32' }
+    const archMap = { arm64: 'arm64', x64: 'x64' }
+    const suffix = osMap[platform] || platform
+    const archName = archMap[arch] || arch
+    const candidates = [
+      `sharecanvas-native.${suffix}-${archName}.node`,
+      `sharecanvas-native.${suffix}-${archName}-gnu.node`,
+    ]
     const req = createRequire(import.meta.url)
-    nativeAI = req(join(ROOT, 'native', filename))
-    console.log('[ai] Rust native addon loaded')
+    for (const f of candidates) {
+      try {
+        nativeAI = req(join(ROOT, 'native', f))
+        console.log('[ai] Rust native addon loaded')
+        break
+      } catch {
+        /* try next */
+      }
+    }
   } catch (e) {
     /* native addon not built */
   }

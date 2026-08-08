@@ -10,6 +10,7 @@ native/target
 crates/ai-core/target
 crates/ai-core/Cargo.lock
 *.node
+native/index.d.ts
 .venv
 models/*.onnx
 samples/
