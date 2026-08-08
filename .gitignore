@@ -14,3 +14,4 @@ native/index.d.ts
 .venv
 models/*.onnx
 samples/
+.vscode/

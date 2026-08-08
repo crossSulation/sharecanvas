@@ -33,6 +33,7 @@ dependencies = [
 name = "ai-core"
 version = "0.1.0"
 dependencies = [
+ "log",
  "serde",
  "tract-onnx",
 ]

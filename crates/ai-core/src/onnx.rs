@@ -17,7 +17,7 @@ mod helpers {
         ("circle", "ellipse"),
         ("square", "rect"),
         ("line", "line"),
-        ("triangle", "diamond"),
+        ("triangle", "triangle"),
         ("arrow", "arrow"),
         ("diamond", "diamond"),
         ("star", "diamond"),

@@ -83,52 +83,28 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
         });
     }
 
-    let aspect = w / h.max(1.0);
-    let rect_conf = eval_rect(points, bbox);
-    if rect_conf > 0.7 && aspect > 0.3 && aspect < 3.0 {
+    let line_conf = eval_line(points, first, last);
+    if line_conf > 0.85 {
+        let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
+        let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
+        let kind = if angle > -30.0 && angle < 30.0 && dist > 30.0 { "arrow" } else { "line" };
+        log_decision("line/arrow", kind, line_conf);
         return Some(DetectedShape {
-            kind: "rect".into(),
-            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
-            confidence: rect_conf,
+            kind: kind.into(),
+            x0: first.x, y0: first.y,
+            x1: last.x, y1: last.y,
+            confidence: line_conf,
         });
     }
 
-    let circ_conf = eval_circle(points, bbox);
-    if circ_conf > 0.6 && aspect > 0.4 && aspect < 2.5 {
-        return Some(DetectedShape {
-            kind: "ellipse".into(),
-            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
-            confidence: circ_conf,
-        });
-    }
+    if let Some(s) = try_triangle(points, bbox) { return Some(s); }
+    if let Some(s) = try_diamond(points, bbox) { return Some(s); }
+    if let Some(s) = try_rect(points, bbox) { return Some(s); }
+    if let Some(s) = try_ellipse(points, bbox) { return Some(s); }
+    if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
+    if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
 
-    let diamond_conf = eval_diamond(points, bbox);
-    if diamond_conf > 0.65 && aspect > 0.4 && aspect < 2.5 {
-        return Some(DetectedShape {
-            kind: "diamond".into(),
-            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
-            confidence: diamond_conf,
-        });
-    }
-
-    let para_conf = eval_parallelogram(points, bbox);
-    if para_conf > 0.6 && aspect > 0.5 && aspect < 3.5 {
-        return Some(DetectedShape {
-            kind: "parallelogram".into(),
-            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
-            confidence: para_conf,
-        });
-    }
-
-    let hex_conf = eval_hexagon(points, bbox);
-    if hex_conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
-        return Some(DetectedShape {
-            kind: "hexagon".into(),
-            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
-            confidence: hex_conf,
-        });
-    }
-
+    log_decision("any", "none", 0.0);
     None
 }
 
@@ -255,4 +231,134 @@ fn eval_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     }
     let avg_dev = total_dev / points.len() as f64;
     (1.0 - avg_dev / (r * 0.35)).max(0.0)
+}
+
+fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    if w < 10.0 || h < 10.0 { return 0.0; }
+    let verts = [
+        (bbox.0 + w / 2.0, bbox.1),   // top center
+        (bbox.2, bbox.3),              // bottom right
+        (bbox.0, bbox.3),              // bottom left
+    ];
+    let mut on_edge = 0usize;
+    for p in points {
+        for i in 0..3 {
+            let a = verts[i];
+            let b = verts[(i + 1) % 3];
+            let dx = b.0 - a.0;
+            let dy = b.1 - a.1;
+            let len2 = dx * dx + dy * dy;
+            if len2 < 1.0 { continue; }
+            let t = ((p.x - a.0) * dx + (p.y - a.1) * dy) / len2;
+            let t = t.max(0.0).min(1.0);
+            let px = a.0 + t * dx;
+            let py = a.1 + t * dy;
+            if ((p.x - px).powi(2) + (p.y - py).powi(2)).sqrt() < (w * 0.2).max(10.0) {
+                on_edge += 1; break;
+            }
+        }
+    }
+    on_edge as f64 / points.len() as f64
+}
+
+fn log_decision(category: &str, kind: &str, conf: f64) {
+    log::info!(
+        "[ai-core] detect_shape: category={} kind={} conf={:.2}",
+        category, kind, conf
+    );
+}
+
+fn try_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let conf = eval_triangle(points, bbox);
+    if conf > 0.65 {
+        log_decision("triangle", "triangle→diamond", conf);
+        return Some(DetectedShape {
+            kind: "triangle".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn try_rect(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_rect(points, bbox);
+    if conf > 0.7 && aspect > 0.3 && aspect < 3.0 {
+        log_decision("rect", "rect", conf);
+        return Some(DetectedShape {
+            kind: "rect".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn try_ellipse(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_circle(points, bbox);
+    if conf > 0.6 && aspect > 0.4 && aspect < 2.5 {
+        log_decision("circle", "ellipse", conf);
+        return Some(DetectedShape {
+            kind: "ellipse".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn try_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_diamond(points, bbox);
+    if conf > 0.65 && aspect > 0.4 && aspect < 2.5 {
+        log_decision("diamond", "diamond", conf);
+        return Some(DetectedShape {
+            kind: "diamond".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn try_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_parallelogram(points, bbox);
+    if conf > 0.6 && aspect > 0.5 && aspect < 3.5 {
+        log_decision("parallelogram", "parallelogram", conf);
+        return Some(DetectedShape {
+            kind: "parallelogram".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn try_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_hexagon(points, bbox);
+    if conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
+        log_decision("hexagon", "hexagon", conf);
+        return Some(DetectedShape {
+            kind: "hexagon".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
 }
