@@ -103,6 +103,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_ellipse(points, bbox) { return Some(s); }
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
+    if let Some(s) = try_star(points, bbox) { return Some(s); }
 
     log_decision("pure","any", "none", 0.0);
     None
@@ -356,6 +357,44 @@ fn try_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
         log_decision("pure","hexagon", "hexagon", conf);
         return Some(DetectedShape {
             kind: "hexagon".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+        });
+    }
+    None
+}
+
+fn eval_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
+    let cx = (bbox.0 + bbox.2) / 2.0;
+    let cy = (bbox.1 + bbox.3) / 2.0;
+    let r = (bbox.2 - bbox.0).max(bbox.3 - bbox.1) / 2.0;
+    if r < 10.0 { return 0.0; }
+    let outer_r = r;
+    let inner_r = r * 0.38;
+    let mut total_dev = 0.0f64;
+    for p in points {
+        let angle = (p.y - cy).atan2(p.x - cx);
+        let sector = (angle + std::f64::consts::PI) / (std::f64::consts::PI * 2.0) * 10.0;
+        let idx = sector.round() as usize;
+        let vertex_angle = (idx as f64) * std::f64::consts::PI / 5.0;
+        let vr = if idx % 2 == 0 { outer_r } else { inner_r };
+        let vx = cx + vr * vertex_angle.cos();
+        let vy = cy + vr * vertex_angle.sin();
+        total_dev += ((p.x - vx).powi(2) + (p.y - vy).powi(2)).sqrt();
+    }
+    let avg_dev = total_dev / points.len() as f64;
+    (1.0 - avg_dev / (r * 0.30)).max(0.0)
+}
+
+fn try_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    let conf = eval_star(points, bbox);
+    if conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
+        log_decision("pure","star", "star", conf);
+        return Some(DetectedShape {
+            kind: "star".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
         });
