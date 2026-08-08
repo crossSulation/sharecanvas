@@ -8,7 +8,7 @@ from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
-LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star"]
+LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon"]
 MAX_POINTS = 100
 CACHE_DIR = "samples"
 
@@ -120,10 +120,33 @@ def gen_star():
     return pts.flatten()
 
 
+def gen_parallelogram():
+    pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
+    w, h = np.random.uniform(0.3, 0.8, 2)
+    skew = w * 0.25
+    verts = [(-w + skew, -h), (w, -h), (w - skew, h), (-w, h)]
+    for i in range(4):
+        a, b = verts[i], verts[(i + 1) % 4]
+        pts[i * 25:(i + 1) * 25, 0] = np.linspace(a[0], b[0], 25)
+        pts[i * 25:(i + 1) * 25, 1] = np.linspace(a[1], b[1], 25)
+    return pts.flatten()
+
+
+def gen_hexagon():
+    pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
+    r = np.random.uniform(0.4, 0.7)
+    for i in range(6):
+        angle = i * np.pi / 3 - np.pi / 6
+        pts[i * 16:(i + 1) * 16, 0] = r * np.cos(angle)
+        pts[i * 16:(i + 1) * 16, 1] = r * np.sin(angle)
+    return pts.flatten()
+
+
 GENERATORS = {
     "circle": gen_circle, "square": gen_square, "line": gen_line,
     "triangle": gen_triangle, "arrow": gen_arrow,
     "diamond": gen_diamond, "star": gen_star,
+    "parallelogram": gen_parallelogram, "hexagon": gen_hexagon,
 }
 
 

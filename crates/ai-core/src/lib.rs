@@ -111,6 +111,24 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
         });
     }
 
+    let para_conf = eval_parallelogram(points, bbox);
+    if para_conf > 0.6 && aspect > 0.5 && aspect < 3.5 {
+        return Some(DetectedShape {
+            kind: "parallelogram".into(),
+            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
+            confidence: para_conf,
+        });
+    }
+
+    let hex_conf = eval_hexagon(points, bbox);
+    if hex_conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
+        return Some(DetectedShape {
+            kind: "hexagon".into(),
+            x0: min_x, y0: min_y, x1: max_x, y1: max_y,
+            confidence: hex_conf,
+        });
+    }
+
     None
 }
 
@@ -188,4 +206,53 @@ fn eval_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     }
     let avg_dev = total_dev / points.len() as f64;
     (1.0 - avg_dev / 0.4).max(0.0)
+}
+
+fn eval_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    if w < 10.0 || h < 10.0 { return 0.0; }
+    let skew = w * 0.25;
+    let verts = [
+        (bbox.0 + skew, bbox.1),
+        (bbox.2, bbox.1),
+        (bbox.2 - skew, bbox.3),
+        (bbox.0, bbox.3),
+    ];
+    let mut on_edge = 0usize;
+    for p in points {
+        for i in 0..4 {
+            let a = verts[i];
+            let b = verts[(i + 1) % 4];
+            let dx = b.0 - a.0;
+            let dy = b.1 - a.1;
+            let len2 = dx * dx + dy * dy;
+            if len2 < 1.0 { continue; }
+            let t = ((p.x - a.0) * dx + (p.y - a.1) * dy) / len2;
+            let t = t.max(0.0).min(1.0);
+            let proj_x = a.0 + t * dx;
+            let proj_y = a.1 + t * dy;
+            let dist = ((p.x - proj_x).powi(2) + (p.y - proj_y).powi(2)).sqrt();
+            if dist < (w * 0.2).max(10.0) { on_edge += 1; break; }
+        }
+    }
+    on_edge as f64 / points.len() as f64
+}
+
+fn eval_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
+    let cx = (bbox.0 + bbox.2) / 2.0;
+    let cy = (bbox.1 + bbox.3) / 2.0;
+    let r = (bbox.2 - bbox.0).max(bbox.3 - bbox.1) / 2.0;
+    if r < 10.0 { return 0.0; }
+    let mut total_dev = 0.0f64;
+    for p in points {
+        let angle = (p.y - cy).atan2(p.x - cx);
+        let sector = (angle + std::f64::consts::PI) / (std::f64::consts::PI * 2.0) * 6.0;
+        let hex_angle = (sector.round()) * std::f64::consts::PI / 3.0;
+        let hex_x = cx + r * hex_angle.cos();
+        let hex_y = cy + r * hex_angle.sin();
+        total_dev += ((p.x - hex_x).powi(2) + (p.y - hex_y).powi(2)).sqrt();
+    }
+    let avg_dev = total_dev / points.len() as f64;
+    (1.0 - avg_dev / (r * 0.35)).max(0.0)
 }

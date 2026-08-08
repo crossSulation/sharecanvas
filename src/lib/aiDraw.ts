@@ -63,7 +63,7 @@ export function smoothPoints(points: Pt[], passes = 2): Pt[] {
 }
 
 export interface DetectedShape {
-  kind: 'rect' | 'ellipse' | 'diamond' | 'arrow' | 'line'
+  kind: 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line'
   x0: number
   y0: number
   x1: number
@@ -113,7 +113,17 @@ export function detectShape(points: Pt[]): DetectedShape | null {
 
   const diamondConf = evalDiamond(points, bbox)
   if (diamondConf > 0.65 && aspectRatio > 0.4 && aspectRatio < 2.5) {
-    return { kind: 'diamond', ...bbox, confidence: diamondConf }
+    return { kind: 'diamond', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: diamondConf }
+  }
+
+  const paraConf = evalParallelogram(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
+  if (paraConf > 0.6 && aspectRatio > 0.5 && aspectRatio < 3.5) {
+    return { kind: 'parallelogram', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: paraConf }
+  }
+
+  const hexConf = evalHexagon(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
+  if (hexConf > 0.55 && aspectRatio > 0.5 && aspectRatio < 2.0) {
+    return { kind: 'hexagon', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: hexConf }
   }
 
   return null
@@ -186,4 +196,50 @@ function evalDiamond(points: Pt[], bbox: { x0: number; y0: number; x1: number; y
   }
   const avgDev = totalDev / points.length
   return Math.max(0, 1 - avgDev / 0.4)
+}
+
+function evalParallelogram(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
+  const w = bbox.x1 - bbox.x0
+  const h = bbox.y1 - bbox.y0
+  if (w < 10 || h < 10) return 0
+  const skew = w * 0.25
+  const verts = [
+    { x: bbox.x0 + skew, y: bbox.y0 },
+    { x: bbox.x1, y: bbox.y0 },
+    { x: bbox.x1 - skew, y: bbox.y1 },
+    { x: bbox.x0, y: bbox.y1 },
+  ]
+  let onEdge = 0
+  for (const p of points) {
+    for (let i = 0; i < 4; i++) {
+      const a = verts[i]!
+      const b = verts[(i + 1) % 4]!
+      const dx = b.x - a.x, dy = b.y - a.y
+      const len2 = dx * dx + dy * dy
+      if (len2 < 1) continue
+      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+      t = Math.max(0, Math.min(1, t))
+      const px = a.x + t * dx, py = a.y + t * dy
+      if (Math.hypot(p.x - px, p.y - py) < Math.max(w * 0.2, 10)) { onEdge++; break }
+    }
+  }
+  return onEdge / points.length
+}
+
+function evalHexagon(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
+  const cx = (bbox.x0 + bbox.x1) / 2
+  const cy = (bbox.y0 + bbox.y1) / 2
+  const r = Math.max(bbox.x1 - bbox.x0, bbox.y1 - bbox.y0) / 2
+  if (r < 10) return 0
+  let totalDev = 0
+  for (const p of points) {
+    const angle = Math.atan2(p.y - cy, p.x - cx)
+    const sector = (angle + Math.PI) / (Math.PI * 2) * 6
+    const hexAngle = Math.round(sector) * Math.PI / 3
+    const hx = cx + r * Math.cos(hexAngle)
+    const hy = cy + r * Math.sin(hexAngle)
+    totalDev += Math.hypot(p.x - hx, p.y - hy)
+  }
+  const avgDev = totalDev / points.length
+  return Math.max(0, 1 - avgDev / (r * 0.35))
 }
