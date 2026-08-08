@@ -440,14 +440,27 @@ function MobileToolbar() {
 }
 
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches,
-  )
+  const [isMobile, setIsMobile] = useState(false)
+
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 639px)')
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
+    let cancelled = false
+    async function detect() {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const result = await invoke<boolean>('is_mobile')
+        if (!cancelled) setIsMobile(result)
+      } catch {
+        if (!cancelled) {
+          const mq = window.matchMedia('(max-width: 639px)')
+          setIsMobile(mq.matches)
+          const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+          mq.addEventListener('change', handler)
+          return () => mq.removeEventListener('change', handler)
+        }
+      }
+    }
+    detect()
+    return () => { cancelled = true }
   }, [])
   return isMobile
 }

@@ -73,11 +73,16 @@ fn ai_status() -> AiStatus {
     }
 }
 
+#[tauri::command]
+fn is_mobile() -> bool {
+    cfg!(mobile)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status])
+    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile])
     .setup(|app| {
       if cfg!(debug_assertions) {
         app.handle().plugin(
