@@ -408,10 +408,10 @@ fn eval_linear(points: &[Point]) -> (f64, f64, f64) {
     let n = points.len() as f64;
     if n < 3.0 { return (0.0, 0.0, 0.0); }
     let mut sx = 0.0f64; let mut sy = 0.0f64;
-    let mut sxy = 0.0f64; let mut sx2 = 0.0f64; let mut sy2 = 0.0f64;
+    let mut sxy = 0.0f64; let mut sx2 = 0.0f64;
     for p in points {
         sx += p.x; sy += p.y;
-        sxy += p.x * p.y; sx2 += p.x * p.x; sy2 += p.y * p.y;
+        sxy += p.x * p.y; sx2 += p.x * p.x;
     }
     let denom = n * sx2 - sx * sx;
     if denom.abs() < f64::EPSILON { return (0.0, 0.0, 0.0); }
@@ -432,11 +432,11 @@ fn eval_quadratic(points: &[Point]) -> (f64, f64, f64, f64) {
     let n = points.len() as f64;
     if n < 5.0 { return (0.0, 0.0, 0.0, 0.0); }
     let mut sx = 0.0f64; let mut sx2 = 0.0f64; let mut sx3 = 0.0f64; let mut sx4 = 0.0f64;
-    let mut sy = 0.0f64; let mut sxy = 0.0f64; let mut sx2y = 0.0f64; let mut sy2 = 0.0f64;
+    let mut sy = 0.0f64; let mut sxy = 0.0f64; let mut sx2y = 0.0f64;
     for p in points {
         let x = p.x; let x2 = x * x; let x3 = x2 * x; let x4 = x3 * x;
         sx += x; sx2 += x2; sx3 += x3; sx4 += x4;
-        sy += p.y; sxy += x * p.y; sx2y += x2 * p.y; sy2 += p.y * p.y;
+        sy += p.y; sxy += x * p.y; sx2y += x2 * p.y;
     }
     let d = n * (sx2 * sx4 - sx3 * sx3) - sx * (sx * sx4 - sx2 * sx3) + sx2 * (sx * sx3 - sx2 * sx2);
     if d.abs() < f64::EPSILON { return (0.0, 0.0, 0.0, 0.0); }

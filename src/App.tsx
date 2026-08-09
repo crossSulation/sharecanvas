@@ -10,6 +10,7 @@ import PerfOverlay from './components/PerfOverlay'
 import AIPanel from './components/AIPanel'
 import { collab } from './lib/collab'
 import { snapshotHashToDoc } from './lib/serialize'
+import { showLogPath } from './lib/aiBackend'
 import { useStore } from './store'
 
 export default function App() {
@@ -19,6 +20,7 @@ export default function App() {
   )
 
   useEffect(() => {
+    showLogPath()
     const hash = window.location.hash
     if (hash) {
       const d = snapshotHashToDoc(hash)

@@ -146,6 +146,7 @@ pub fn run() {
           let entry = format!("AI {} category={} kind={} conf={:.2}", source, category, kind, conf);
           write_log(&entry);
       });
+      write_log("sharecanvas started");
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()

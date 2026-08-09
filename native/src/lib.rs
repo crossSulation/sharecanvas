@@ -1,4 +1,3 @@
-use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use ai_core::{smooth_points, detect_shape, Point, onnx::{OnnxSession, ModelStatus}};
 use std::sync::Mutex;

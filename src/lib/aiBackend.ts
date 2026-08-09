@@ -14,6 +14,14 @@ interface BackendAI {
 
 type BackendName = 'tauri' | 'native-server' | 'js-fallback'
 
+export async function showLogPath() {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const path = await invoke<string>('log_file_path')
+    if (path) console.log('%c[AI] log file: %c%s', 'color:#a1a1aa', 'color:#3b82f6', path)
+  } catch { /* not in Tauri */ }
+}
+
 async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
   // 仅 Tauri 环境才尝试加载 @tauri-apps/api
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
