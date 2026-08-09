@@ -254,9 +254,11 @@ def main():
         # 加载手绘训练数据（train_data/{label}.jsonl）
         real = load_real_samples(label)
         if real is not None and len(real) > 0:
-            print(f"  {label}: {len(real)} real hand-drawn samples loaded")
-            X_list.append(real)
-            y_list.extend([i] * len(real))
+            print(f"  {label}: {len(real)} real hand-drawn samples loaded (oversampled 5x)")
+            # 真实数据少，重复 5 次增加权重
+            oversampled = np.tile(real, (5, 1))
+            X_list.append(oversampled)
+            y_list.extend([i] * len(oversampled))
 
     X = np.vstack(X_list).astype(np.float32)
     y = np.array(y_list)
