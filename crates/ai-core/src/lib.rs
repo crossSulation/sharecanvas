@@ -227,32 +227,46 @@ fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     let w = bbox.2 - bbox.0;
     let h = bbox.3 - bbox.1;
     if w < 10.0 || h < 10.0 { return 0.0; }
-    let verts = [
-        (bbox.0 + w / 2.0, bbox.1),   // top center
-        (bbox.2, bbox.3),              // bottom right
-        (bbox.0, bbox.3),              // bottom left
+    let cx = (bbox.0 + bbox.2) / 2.0;
+    let cy = (bbox.1 + bbox.3) / 2.0;
+    // Try 3 orientations: apex at top, bottom-left, bottom-right
+    let orientations: [[(f64, f64); 3]; 4] = [
+        [(cx, bbox.1), (bbox.2, bbox.3), (bbox.0, bbox.3)],         // apex top
+        [(cx, bbox.3), (bbox.2, bbox.1), (bbox.0, bbox.1)],         // apex bottom
+        [(bbox.1, cy), (bbox.3, bbox.1), (bbox.3, bbox.3)],         // ? not needed
+        [(bbox.2, cy), (bbox.0, bbox.1), (bbox.0, bbox.3)],         // ?
     ];
-    let mut sum_sq = 0.0f64;
-    for p in points {
-        let mut min_sq = f64::MAX;
-        for i in 0..3 {
-            let a = verts[i];
-            let b = verts[(i + 1) % 3];
-            let dx = b.0 - a.0;
-            let dy = b.1 - a.1;
-            let len2 = dx * dx + dy * dy;
-            if len2 < 1.0 { continue; }
-            let t = ((p.x - a.0) * dx + (p.y - a.1) * dy) / len2;
-            let t = t.max(0.0).min(1.0);
-            let px = a.0 + t * dx;
-            let py = a.1 + t * dy;
-            let dsq = (p.x - px).powi(2) + (p.y - py).powi(2);
-            if dsq < min_sq { min_sq = dsq; }
+    // Simplified: just try apex at top and bottom
+    let tri_top: [(f64, f64); 3] = [(cx, bbox.1), (bbox.2, bbox.3), (bbox.0, bbox.3)];
+    let tri_bottom: [(f64, f64); 3] = [(cx, bbox.3), (bbox.0, bbox.1), (bbox.2, bbox.1)];
+    let tries = [&tri_top[..], &tri_bottom[..]];
+
+    let mut best = 0.0f64;
+    for verts in &tries {
+        let mut sum_sq = 0.0f64;
+        for p in points {
+            let mut min_sq = f64::MAX;
+            for i in 0..3 {
+                let a = verts[i];
+                let b = verts[(i + 1) % 3];
+                let dx = b.0 - a.0;
+                let dy = b.1 - a.1;
+                let len2 = dx * dx + dy * dy;
+                if len2 < 1.0 { continue; }
+                let t = ((p.x - a.0) * dx + (p.y - a.1) * dy) / len2;
+                let t = t.max(0.0).min(1.0);
+                let px = a.0 + t * dx;
+                let py = a.1 + t * dy;
+                let dsq = (p.x - px).powi(2) + (p.y - py).powi(2);
+                if dsq < min_sq { min_sq = dsq; }
+            }
+            if min_sq < f64::MAX { sum_sq += min_sq; }
         }
-        if min_sq < f64::MAX { sum_sq += min_sq; }
+        let rms = (sum_sq / points.len() as f64).sqrt();
+        let conf = (1.0 - rms / (w * 0.25).max(10.0)).max(0.0);
+        if conf > best { best = conf; }
     }
-    let rms = (sum_sq / points.len() as f64).sqrt();
-    (1.0 - rms / (w * 0.25).max(10.0)).max(0.0)
+    best
 }
 
 pub(crate) fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
@@ -274,7 +288,7 @@ pub fn set_log_hook(f: impl Fn(&str, &str, &str, f64) + Send + Sync + 'static) {
 
 fn try_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
     let conf = eval_triangle(points, bbox);
-    if conf > 0.65 {
+    if conf > 0.5 {
         log_decision("pure","triangle", "triangle→diamond", conf);
         return Some(DetectedShape {
             kind: "triangle".into(),
