@@ -87,15 +87,22 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 
     let (smoothed, detected, onnx_used) = if session.status() == ModelStatus::Ready {
         match session.classify_shape(&pts) {
-            Ok(Some(shape)) => (
-                session.smooth_stroke(&pts).unwrap_or_else(|_| smooth_points(&pts, 2)),
-                Some(shape), true,
-            ),
-            Err(e) => {
-                write_log(&format!("ONNX classify error: {}", e));
+            Ok(Some(cnn_shape)) => {
+                // CNN 作为参考，但纯算法优先（目前纯算法更准确）
+                let s = smooth_points(&pts, 2);
+                let pure = detect_shape(&s);
+                // 纯算法识别到形状时优先使用，否则用 CNN
+                if pure.is_some() {
+                    (s, pure, false)
+                } else {
+                    (s, Some(cnn_shape), true)
+                }
+            }
+            _ => {
                 let s = smooth_points(&pts, 2);
                 (s.clone(), detect_shape(&s), false)
             }
+        }
             Ok(None) => {
                 write_log("ONNX classify returned None");
                 let s = smooth_points(&pts, 2);
