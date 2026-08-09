@@ -105,16 +105,16 @@ fn eval_line(points: &[Point], first: &Point, last: &Point) -> f64 {
     if len2 < 1.0 {
         return 0.0;
     }
-    let mut total_dist = 0.0f64;
+    let mut sum_sq = 0.0f64;
     for i in 1..points.len() - 1 {
         let t = ((points[i].x - first.x) * dx + (points[i].y - first.y) * dy) / len2;
         let proj_x = first.x + t * dx;
         let proj_y = first.y + t * dy;
-        total_dist += ((points[i].x - proj_x).powi(2) + (points[i].y - proj_y).powi(2)).sqrt();
+        sum_sq += (points[i].x - proj_x).powi(2) + (points[i].y - proj_y).powi(2);
     }
-    let avg_dev = total_dist / (points.len() - 2) as f64;
+    let rms = (sum_sq / (points.len() - 2) as f64).sqrt();
     let line_len = len2.sqrt();
-    (1.0 - avg_dev / (line_len * 0.3).max(5.0)).max(0.0)
+    (1.0 - rms / (line_len * 0.3).max(5.0)).max(0.0)
 }
 
 fn eval_rect(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
@@ -143,13 +143,13 @@ fn eval_circle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     if rx < 3.0 || ry < 3.0 {
         return 0.0;
     }
-    let mut total_dev = 0.0f64;
+    let mut sum_sq = 0.0f64;
     for p in points {
         let v = ((p.x - cx) / rx).powi(2) + ((p.y - cy) / ry).powi(2);
-        total_dev += (v.sqrt() - 1.0).abs();
+        sum_sq += (v.sqrt() - 1.0).powi(2);
     }
-    let avg_dev = total_dev / points.len() as f64;
-    (1.0 - avg_dev / 0.35).max(0.0)
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / 0.40).max(0.0)
 }
 
 fn eval_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
@@ -160,15 +160,15 @@ fn eval_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     if hw < 3.0 || hh < 3.0 {
         return 0.0;
     }
-    let mut total_dev = 0.0f64;
+    let mut sum_sq = 0.0f64;
     for p in points {
         let dx = (p.x - cx).abs();
         let dy = (p.y - cy).abs();
         let diamond_dist = dx / hw + dy / hh;
-        total_dev += (diamond_dist - 1.0).abs();
+        sum_sq += (diamond_dist - 1.0).powi(2);
     }
-    let avg_dev = total_dev / points.len() as f64;
-    (1.0 - avg_dev / 0.4).max(0.0)
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / 0.5).max(0.0)
 }
 
 fn eval_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
@@ -207,17 +207,17 @@ fn eval_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     let cy = (bbox.1 + bbox.3) / 2.0;
     let r = (bbox.2 - bbox.0).max(bbox.3 - bbox.1) / 2.0;
     if r < 10.0 { return 0.0; }
-    let mut total_dev = 0.0f64;
+    let mut sum_sq = 0.0f64;
     for p in points {
         let angle = (p.y - cy).atan2(p.x - cx);
         let sector = (angle + std::f64::consts::PI) / (std::f64::consts::PI * 2.0) * 6.0;
         let hex_angle = (sector.round()) * std::f64::consts::PI / 3.0;
         let hex_x = cx + r * hex_angle.cos();
         let hex_y = cy + r * hex_angle.sin();
-        total_dev += ((p.x - hex_x).powi(2) + (p.y - hex_y).powi(2)).sqrt();
+        sum_sq += (p.x - hex_x).powi(2) + (p.y - hex_y).powi(2);
     }
-    let avg_dev = total_dev / points.len() as f64;
-    (1.0 - avg_dev / (r * 0.35)).max(0.0)
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / (r * 0.40)).max(0.0)
 }
 
 fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
@@ -229,8 +229,9 @@ fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
         (bbox.2, bbox.3),              // bottom right
         (bbox.0, bbox.3),              // bottom left
     ];
-    let mut on_edge = 0usize;
+    let mut sum_sq = 0.0f64;
     for p in points {
+        let mut min_sq = f64::MAX;
         for i in 0..3 {
             let a = verts[i];
             let b = verts[(i + 1) % 3];
@@ -242,12 +243,13 @@ fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
             let t = t.max(0.0).min(1.0);
             let px = a.0 + t * dx;
             let py = a.1 + t * dy;
-            if ((p.x - px).powi(2) + (p.y - py).powi(2)).sqrt() < (w * 0.2).max(10.0) {
-                on_edge += 1; break;
-            }
+            let dsq = (p.x - px).powi(2) + (p.y - py).powi(2);
+            if dsq < min_sq { min_sq = dsq; }
         }
+        if min_sq < f64::MAX { sum_sq += min_sq; }
     }
-    on_edge as f64 / points.len() as f64
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / (w * 0.25).max(10.0)).max(0.0)
 }
 
 fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
@@ -427,7 +429,7 @@ fn eval_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     if r < 10.0 { return 0.0; }
     let outer_r = r;
     let inner_r = r * 0.38;
-    let mut total_dev = 0.0f64;
+    let mut sum_sq = 0.0f64;
     for p in points {
         let angle = (p.y - cy).atan2(p.x - cx);
         let sector = (angle + std::f64::consts::PI) / (std::f64::consts::PI * 2.0) * 10.0;
@@ -436,10 +438,10 @@ fn eval_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
         let vr = if idx % 2 == 0 { outer_r } else { inner_r };
         let vx = cx + vr * vertex_angle.cos();
         let vy = cy + vr * vertex_angle.sin();
-        total_dev += ((p.x - vx).powi(2) + (p.y - vy).powi(2)).sqrt();
+        sum_sq += (p.x - vx).powi(2) + (p.y - vy).powi(2);
     }
-    let avg_dev = total_dev / points.len() as f64;
-    (1.0 - avg_dev / (r * 0.30)).max(0.0)
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / (r * 0.40)).max(0.0)
 }
 
 fn try_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {

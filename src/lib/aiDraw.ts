@@ -159,16 +159,16 @@ function evalLine(points: Pt[], first: Pt, last: Pt): number {
   const dy = last.y - first.y
   const len2 = dx * dx + dy * dy
   if (len2 < 1) return 0
-  let totalDist = 0
+  let sumSq = 0
   for (let i = 1; i < points.length - 1; i++) {
     const t = ((points[i]!.x - first.x) * dx + (points[i]!.y - first.y) * dy) / len2
     const projX = first.x + t * dx
     const projY = first.y + t * dy
-    totalDist += Math.hypot(points[i]!.x - projX, points[i]!.y - projY)
+    sumSq += (points[i]!.x - projX) ** 2 + (points[i]!.y - projY) ** 2
   }
-  const avgDev = totalDist / (points.length - 2)
+  const rms = Math.sqrt(sumSq / (points.length - 2))
   const lineLen = Math.sqrt(len2)
-  return Math.max(0, 1 - avgDev / Math.max(lineLen * 0.3, 5))
+  return Math.max(0, 1 - rms / Math.max(lineLen * 0.3, 5))
 }
 
 function evalRect(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
@@ -195,13 +195,13 @@ function evalCircle(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1
   const ry = (bbox.y1 - bbox.y0) / 2
   if (rx < 3 || ry < 3) return 0
 
-  let totalDev = 0
+  let sumSq = 0
   for (const p of points) {
     const v = ((p.x - cx) / rx) ** 2 + ((p.y - cy) / ry) ** 2
-    totalDev += Math.abs(Math.sqrt(v) - 1)
+    sumSq += (Math.sqrt(v) - 1) ** 2
   }
-  const avgDev = totalDev / points.length
-  return Math.max(0, 1 - avgDev / 0.35)
+  const rms = Math.sqrt(sumSq / points.length)
+  return Math.max(0, 1 - rms / 0.4)
 }
 
 function evalDiamond(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
@@ -211,15 +211,15 @@ function evalDiamond(points: Pt[], bbox: { x0: number; y0: number; x1: number; y
   const hh = (bbox.y1 - bbox.y0) / 2
   if (hw < 3 || hh < 3) return 0
 
-  let totalDev = 0
+  let sumSq = 0
   for (const p of points) {
     const dx = Math.abs(p.x - cx)
     const dy = Math.abs(p.y - cy)
     const diamondDist = dx / hw + dy / hh
-    totalDev += Math.abs(diamondDist - 1)
+    sumSq += (diamondDist - 1) ** 2
   }
-  const avgDev = totalDev / points.length
-  return Math.max(0, 1 - avgDev / 0.4)
+  const rms = Math.sqrt(sumSq / points.length)
+  return Math.max(0, 1 - rms / 0.5)
 }
 
 function evalParallelogram(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
@@ -255,17 +255,17 @@ function evalHexagon(points: Pt[], bbox: { x0: number; y0: number; x1: number; y
   const cy = (bbox.y0 + bbox.y1) / 2
   const r = Math.max(bbox.x1 - bbox.x0, bbox.y1 - bbox.y0) / 2
   if (r < 10) return 0
-  let totalDev = 0
+  let sumSq = 0
   for (const p of points) {
     const angle = Math.atan2(p.y - cy, p.x - cx)
     const sector = (angle + Math.PI) / (Math.PI * 2) * 6
     const hexAngle = Math.round(sector) * Math.PI / 3
     const hx = cx + r * Math.cos(hexAngle)
     const hy = cy + r * Math.sin(hexAngle)
-    totalDev += Math.hypot(p.x - hx, p.y - hy)
+    sumSq += (p.x - hx) ** 2 + (p.y - hy) ** 2
   }
-  const avgDev = totalDev / points.length
-  return Math.max(0, 1 - avgDev / (r * 0.35))
+  const rms = Math.sqrt(sumSq / points.length)
+  return Math.max(0, 1 - rms / (r * 0.4))
 }
 
 function evalLinear(points: Pt[]): { a: number; b: number; r2: number } {
