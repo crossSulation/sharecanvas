@@ -142,6 +142,10 @@ pub fn run() {
       std::fs::create_dir_all(&log_dir_path).ok();
       let log_path = log_dir_path.join("sharecanvas.log");
       LOG_FILE.set(log_path).ok();
+      ai_core::set_log_hook(|source, category, kind, conf| {
+          let entry = format!("AI {} category={} kind={} conf={:.2}", source, category, kind, conf);
+          write_log(&entry);
+      });
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()

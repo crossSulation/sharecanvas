@@ -254,6 +254,16 @@ fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
         "[ai-core] source={} category={} kind={} conf={:.2}",
         source, category, kind, conf
     );
+    if let Some(cb) = LOG_HOOK.get() {
+        cb(source, category, kind, conf);
+    }
+}
+
+use std::sync::OnceLock;
+static LOG_HOOK: OnceLock<Box<dyn Fn(&str, &str, &str, f64) + Send + Sync + 'static>> = OnceLock::new();
+
+pub fn set_log_hook(f: impl Fn(&str, &str, &str, f64) + Send + Sync + 'static) {
+    LOG_HOOK.set(Box::new(f)).ok();
 }
 
 fn try_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
