@@ -300,10 +300,11 @@ def main():
             X_list.append(synth)
             y_list.extend([i] * len(synth))
 
-        # 加载手绘训练数据（train_data/{label}.jsonl）— coordinate format
+        # 加载手绘训练数据，真实数据少时加大过采样
         real = load_real_samples_coords(label)
         if real is not None and len(real) > 0:
-            oversample = 20 if len(real) < 1000 else 5
+            # 真实样本数 < 500：20x 过采样；否则 5x
+            oversample = 20 if len(real) < 500 else 5
             print(f"  {label}: {len(real)} real samples loaded ({oversample}x = {len(real) * oversample})")
             oversampled = np.tile(real, (oversample, 1))
             X_list.append(oversampled)
