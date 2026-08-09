@@ -69,10 +69,21 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 
     let (smoothed, detected, onnx_used) = if session.status() == ModelStatus::Ready {
         match session.classify_shape(&pts) {
-            Ok(Some(shape)) => (
+            Ok(Some(shape)) if shape.confidence >= 0.85 => (
                 session.smooth_stroke(&pts).unwrap_or_else(|_| smooth_points(&pts, 2)),
                 Some(shape), true,
             ),
+            Ok(Some(onnx_shape)) => {
+                // ONNX 置信度低，用纯算法兜底；取其置信度高的
+                let s = smooth_points(&pts, 2);
+                let pure = detect_shape(&s);
+                let use_onnx = pure.as_ref().map_or(true, |p| onnx_shape.confidence > p.confidence);
+                if use_onnx {
+                    (s, Some(onnx_shape), true)
+                } else {
+                    (s, pure, false)
+                }
+            }
             _ => {
                 let s = smooth_points(&pts, 2);
                 (s.clone(), detect_shape(&s), false)
