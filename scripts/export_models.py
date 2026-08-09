@@ -8,7 +8,7 @@ from skl2onnx import convert_sklearn
 from skl2onnx.common.data_types import FloatTensorType
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
-LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid"]
+LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
 MAX_POINTS = 100
 CACHE_DIR = "samples"
 
@@ -155,12 +155,31 @@ def gen_trapezoid():
     return pts.flatten()
 
 
+def gen_polygon(sides):
+    def _gen():
+        pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
+        r = np.random.uniform(0.4, 0.7)
+        per_side = MAX_POINTS // sides
+        for i in range(sides):
+            a_angle = i * 2 * np.pi / sides - np.pi / sides
+            b_angle = (i + 1) * 2 * np.pi / sides - np.pi / sides
+            ax, ay = r * np.cos(a_angle), r * np.sin(a_angle)
+            bx, by = r * np.cos(b_angle), r * np.sin(b_angle)
+            pts[i * per_side:(i + 1) * per_side, 0] = np.linspace(ax, bx, per_side)
+            pts[i * per_side:(i + 1) * per_side, 1] = np.linspace(ay, by, per_side)
+        return pts.flatten()
+    return _gen
+
+
 GENERATORS = {
     "circle": gen_circle, "square": gen_square, "line": gen_line,
     "triangle": gen_triangle, "arrow": gen_arrow,
     "diamond": gen_diamond, "star": gen_star,
     "parallelogram": gen_parallelogram, "hexagon": gen_hexagon,
     "trapezoid": gen_trapezoid,
+    "pentagon": gen_polygon(5),
+    "heptagon": gen_polygon(7),
+    "octagon": gen_polygon(8),
 }
 
 
