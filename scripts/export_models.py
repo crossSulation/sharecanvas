@@ -2,10 +2,10 @@
 """Export ONNX sketch AI models. uv pip install -r scripts/requirements.txt"""
 
 import argparse, os, json, numpy as np
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_val_score
-from skl2onnx import convert_sklearn
-from skl2onnx.common.data_types import FloatTensorType
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from sklearn.model_selection import train_test_split
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
 LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
@@ -309,51 +309,57 @@ def main():
             y_list.extend([i] * len(oversampled))
 
     X = np.vstack(X_list).astype(np.float32)
-    y = np.array(y_list)
-    print(f"\nTraining data: {len(X)} samples, {len(set(y))} classes")
+    y = np.array(y_list, dtype=np.int32)
+    num_classes = len(LABELS)
+    print(f"\nTraining data: {len(X)} samples, {num_classes} classes")
 
-    clf = MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=800,
-                         random_state=42, early_stopping=True, batch_size=200)
-    clf.fit(X, y)
+    # Reshape to (N, 100, 2) for 1D CNN: 100 points × 2 coords
+    X = X.reshape(-1, MAX_POINTS, 2)
+    y = keras.utils.to_categorical(y, num_classes)
 
-    print("Cross-validation (5-fold)...")
-    scores = cross_val_score(clf, X, y, cv=5)
-    print(f"  CV accuracy: {scores.mean():.1%} ± {scores.std():.1%}")
-    print(f"  Per-fold: {[f'{s:.1%}' for s in scores]}")
+    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.15, random_state=42)
 
-    # Save pure-Rust weights (no ONNX runtime needed)
+    model = keras.Sequential([
+        layers.Input(shape=(MAX_POINTS, 2)),
+        layers.Conv1D(32, kernel_size=5, activation='relu', padding='same', name='conv1'),
+        layers.MaxPooling1D(pool_size=2, name='pool1'),
+        layers.Conv1D(64, kernel_size=5, activation='relu', padding='same', name='conv2'),
+        layers.MaxPooling1D(pool_size=2, name='pool2'),
+        layers.Flatten(),
+        layers.Dense(128, activation='relu', name='fc1'),
+        layers.Dropout(0.3),
+        layers.Dense(num_classes, activation='softmax', name='fc2'),
+    ])
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    model.summary()
+
+    model.fit(X_train, y_train, validation_data=(X_val, y_val),
+              epochs=30, batch_size=256, verbose=2)
+
+    loss, acc = model.evaluate(X_val, y_val, verbose=0)
+    print(f"\nValidation accuracy: {acc:.1%}")
+
+    # Export weights for Rust CNN
     import struct
-    weights = {
-        'w1': clf.coefs_[0].astype(np.float32).copy(),     # (h1, input_dim)
-        'b1': clf.intercepts_[0].astype(np.float32).copy(),
-        'w2': clf.coefs_[1].astype(np.float32).copy(),     # (h2, h1)
-        'b2': clf.intercepts_[1].astype(np.float32).copy(),
-        'w3': clf.coefs_[2].astype(np.float32).copy(),     # (classes, h2)
-        'b3': clf.intercepts_[2].astype(np.float32).copy(),
-    }
+    weights = {}
+    for layer in model.layers:
+        for w in layer.weights:
+            name = f"{layer.name}_{w.name}".replace('/', '_').replace(':', '_')
+            arr = w.numpy().astype(np.float32)
+            weights[name] = arr
+
     bin_path = os.path.join(args.output, "sketch_classify.bin")
     with open(bin_path, 'wb') as f:
-        for key in ['w1', 'b1', 'w2', 'b2', 'w3', 'b3']:
+        for key in sorted(weights.keys()):
             arr = weights[key]
-            f.write(struct.pack('II', arr.ndim, 1 if arr.dtype == np.float32 else 0))
+            key_bytes = key.encode('utf-8')
+            f.write(struct.pack('III', arr.ndim, 1, len(key_bytes)))
+            f.write(key_bytes)
             for d in arr.shape:
                 f.write(struct.pack('I', d))
             f.write(arr.tobytes())
-    print(f"Saved weights: {bin_path} ({os.path.getsize(bin_path) / 1024:.1f} KB)")
-
-    # Also export ONNX for reference
-    onx = convert_sklearn(clf, initial_types=[("float_input", FloatTensorType([1, MAX_POINTS * 2]))],
-                          target_opset=15, options={id(clf): {'zipmap': False}})
-    import onnx
-    from onnxsim import simplify
-    try:
-        onx, check = simplify(onx, check_n=1, skip_shape_inference=False)
-    except ImportError:
-        pass
-    onnx_path = os.path.join(args.output, "sketch_classify.onnx")
-    with open(onnx_path, "wb") as f:
-        f.write(onx.SerializeToString())
-    print(f"Saved ONNX: {onnx_path} ({os.path.getsize(onnx_path)/1024:.1f} KB)")
+            print(f"  {key}: {arr.shape}")
+    print(f"\nSaved CNN weights: {bin_path} ({os.path.getsize(bin_path) / 1024:.1f} KB)")
     print("Done!")
 
 
