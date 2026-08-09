@@ -158,8 +158,8 @@ export default function TrainCollector() {
         }
       }
       setSamples([])
-    } catch {
-      flash('提交失败：无法保存')
+    } catch (e) {
+      flash('提交失败：' + String(e))
     }
     setUploading(false)
   }
