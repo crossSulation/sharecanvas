@@ -5,9 +5,8 @@ edition = "2021"
 
 [features]
 default = []
-onnx = ["tract-onnx"]
+onnx = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
-tract-onnx = { version = "0.21", optional = true }

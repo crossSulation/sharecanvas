@@ -232,7 +232,15 @@ def main():
     print(f"  Per-fold: {[f'{s:.1%}' for s in scores]}")
 
     # Save pure-Rust weights (no ONNX runtime needed)
-    import json, struct
+    import struct
+    weights = {
+        'w1': clf.coefs_[0].astype(np.float32).copy(),     # (h1, input_dim)
+        'b1': clf.intercepts_[0].astype(np.float32).copy(),
+        'w2': clf.coefs_[1].astype(np.float32).copy(),     # (h2, h1)
+        'b2': clf.intercepts_[1].astype(np.float32).copy(),
+        'w3': clf.coefs_[2].astype(np.float32).copy(),     # (classes, h2)
+        'b3': clf.intercepts_[2].astype(np.float32).copy(),
+    }
     bin_path = os.path.join(args.output, "sketch_classify.bin")
     with open(bin_path, 'wb') as f:
         for key in ['w1', 'b1', 'w2', 'b2', 'w3', 'b3']:

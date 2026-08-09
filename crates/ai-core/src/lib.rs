@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod onnx;
+mod mlp;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Point {
@@ -254,7 +255,7 @@ fn eval_triangle(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     (1.0 - rms / (w * 0.25).max(10.0)).max(0.0)
 }
 
-fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
+pub(crate) fn log_decision(source: &str, category: &str, kind: &str, conf: f64) {
     log::info!(
         "[ai-core] source={} category={} kind={} conf={:.2}",
         source, category, kind, conf
