@@ -75,8 +75,6 @@ mod imp {
             tract_onnx::onnx()
                 .model_for_path(path)
                 .map_err(|e| e.to_string())?
-                .into_optimized()
-                .map_err(|e| e.to_string())?
                 .into_runnable()
                 .map_err(|e| e.to_string())
         }
@@ -171,8 +169,6 @@ mod imp {
                 let v = output[[0, i]];
                 if v > max_val { max_val = v; max_idx = i; }
             }
-
-            if max_val < 0.5 { return Ok(None); }
 
             let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
             let ys: Vec<f64> = points.iter().map(|p| p.y).collect();

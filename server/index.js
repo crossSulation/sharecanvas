@@ -317,6 +317,7 @@ async function handleStatic(req, res) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost')
   if (url.pathname === '/api/health') {
+    const onnxStatus = nativeAI?.onnxStatus ? nativeAI.onnxStatus() : { loaded: false, modelLoaded: false }
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({
       ok: true,
@@ -324,6 +325,7 @@ const server = http.createServer((req, res) => {
       uptime: Math.round(process.uptime()),
       redis: !!redisPersistence,
       ai: !!nativeAI,
+      onnx: onnxStatus.loaded,
     }))
     return
   }

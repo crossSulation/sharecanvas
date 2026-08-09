@@ -53,14 +53,28 @@ fn get_session() -> &'static Mutex<OnnxSession> {
             PathBuf::from("../models"),
             PathBuf::from("../../models"),
         ];
+        let mut loaded = false;
         for dir in &candidates {
             if dir.join("sketch_classify.onnx").exists() || dir.join("sketch_smooth.onnx").exists() {
                 match session.load_model(&dir.to_string_lossy()) {
-                    Ok(()) => log::info!("ONNX model loaded from {}", dir.display()),
-                    Err(e) => log::warn!("ONNX load failed from {}: {}", dir.display(), e),
+                    Ok(()) => {
+                        log::info!("ONNX model loaded from {}", dir.display());
+                        write_log(&format!("ONNX model loaded from {} (status={:?})", dir.display(), session.status()));
+                        loaded = true;
+                    }
+                    Err(e) => {
+                        log::warn!("ONNX load failed from {}: {}", dir.display(), e);
+                        write_log(&format!("ONNX load failed from {}: {}", dir.display(), e));
+                    }
                 }
                 break;
             }
+        }
+        if !loaded {
+            let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "?".into());
+            let msg = format!("ONNX model not found (cwd={}, candidates={})", cwd,
+                candidates.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "));
+            write_log(&msg);
         }
         Mutex::new(session)
     })
@@ -84,27 +98,11 @@ fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
 
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
         match session.classify_shape(&points) {
-            Ok(Some(shape)) if shape.confidence >= 0.6 => {
+            Ok(Some(shape)) => {
                 let entry = format!("AI onnx kind={} conf={:.3}", shape.kind, shape.confidence);
                 log::info!("{}", entry);
                 write_log(&entry);
                 (session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2)), Some(shape))
-            }
-            Ok(Some(onnx_shape)) => {
-                let entry = format!("AI onnx-low kind={} conf={:.3}", onnx_shape.kind, onnx_shape.confidence);
-                write_log(&entry);
-                let s = smooth_points(&points, 2);
-                let pure = detect_shape(&s);
-                let use_onnx = pure.as_ref().map_or(true, |p| onnx_shape.confidence > p.confidence);
-                if use_onnx {
-                    (s, Some(onnx_shape))
-                } else {
-                    if let Some(ref shape) = pure {
-                        let e = format!("AI pure(beats-onnx) kind={} conf={:.3}", shape.kind, shape.confidence);
-                        write_log(&e);
-                    }
-                    (s, pure)
-                }
             }
             _ => {
                 let s = session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2));

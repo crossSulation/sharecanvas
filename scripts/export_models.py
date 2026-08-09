@@ -231,12 +231,31 @@ def main():
     print(f"  CV accuracy: {scores.mean():.1%} ± {scores.std():.1%}")
     print(f"  Per-fold: {[f'{s:.1%}' for s in scores]}")
 
+    # Save pure-Rust weights (no ONNX runtime needed)
+    import json, struct
+    bin_path = os.path.join(args.output, "sketch_classify.bin")
+    with open(bin_path, 'wb') as f:
+        for key in ['w1', 'b1', 'w2', 'b2', 'w3', 'b3']:
+            arr = weights[key]
+            f.write(struct.pack('II', arr.ndim, 1 if arr.dtype == np.float32 else 0))
+            for d in arr.shape:
+                f.write(struct.pack('I', d))
+            f.write(arr.tobytes())
+    print(f"Saved weights: {bin_path} ({os.path.getsize(bin_path) / 1024:.1f} KB)")
+
+    # Also export ONNX for reference
     onx = convert_sklearn(clf, initial_types=[("float_input", FloatTensorType([1, MAX_POINTS * 2]))],
-                          target_opset=15)
-    out_path = os.path.join(args.output, "sketch_classify.onnx")
-    with open(out_path, "wb") as f:
+                          target_opset=15, options={id(clf): {'zipmap': False}})
+    import onnx
+    from onnxsim import simplify
+    try:
+        onx, check = simplify(onx, check_n=1, skip_shape_inference=False)
+    except ImportError:
+        pass
+    onnx_path = os.path.join(args.output, "sketch_classify.onnx")
+    with open(onnx_path, "wb") as f:
         f.write(onx.SerializeToString())
-    print(f"\nSaved: {out_path} ({os.path.getsize(out_path)/1024:.1f} KB)")
+    print(f"Saved ONNX: {onnx_path} ({os.path.getsize(onnx_path)/1024:.1f} KB)")
     print("Done!")
 
 

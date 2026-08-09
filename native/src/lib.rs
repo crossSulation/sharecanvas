@@ -34,11 +34,26 @@ fn ensure_init() {
 static SESSION: LazyLock<Mutex<Option<OnnxSession>>> =
     LazyLock::new(|| {
         let mut session = OnnxSession::new();
+        let mut loaded = false;
         for dir in &["models", "../models", "../../models"] {
-            if std::path::Path::new(dir).join("sketch_classify.onnx").exists() {
-                let _ = session.load_model(dir);
+            let path = std::path::Path::new(dir);
+            let classify = path.join("sketch_classify.onnx");
+            if classify.exists() {
+                match session.load_model(&classify.to_string_lossy()) {
+                    Ok(()) => {
+                        write_log(&format!("ONNX model loaded from {} (status={:?})", dir, session.status()));
+                        loaded = true;
+                    }
+                    Err(e) => {
+                        write_log(&format!("ONNX load failed from {}: {}", dir, e));
+                    }
+                }
                 break;
             }
+        }
+        if !loaded {
+            write_log(&format!("ONNX model not found in models/, ../models/, ../../models/ (cwd={})",
+                std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "?".into())));
         }
         Mutex::new(Some(session))
     });
@@ -69,22 +84,17 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 
     let (smoothed, detected, onnx_used) = if session.status() == ModelStatus::Ready {
         match session.classify_shape(&pts) {
-            Ok(Some(shape)) if shape.confidence >= 0.6 => (
+            Ok(Some(shape)) => (
                 session.smooth_stroke(&pts).unwrap_or_else(|_| smooth_points(&pts, 2)),
                 Some(shape), true,
             ),
-            Ok(Some(onnx_shape)) => {
-                // ONNX 置信度低，用纯算法兜底；取其置信度高的
+            Err(e) => {
+                write_log(&format!("ONNX classify error: {}", e));
                 let s = smooth_points(&pts, 2);
-                let pure = detect_shape(&s);
-                let use_onnx = pure.as_ref().map_or(true, |p| onnx_shape.confidence > p.confidence);
-                if use_onnx {
-                    (s, Some(onnx_shape), true)
-                } else {
-                    (s, pure, false)
-                }
+                (s.clone(), detect_shape(&s), false)
             }
-            _ => {
+            Ok(None) => {
+                write_log("ONNX classify returned None");
                 let s = smooth_points(&pts, 2);
                 (s.clone(), detect_shape(&s), false)
             }
@@ -108,4 +118,21 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 pub fn log_file_path() -> String {
     ensure_init();
     LOG_PATH.to_string_lossy().to_string()
+}
+
+#[napi(object)]
+pub struct JsOnnxStatus {
+    pub loaded: bool,
+    pub model_loaded: bool,
+}
+
+#[napi]
+pub fn onnx_status() -> JsOnnxStatus {
+    let guard = SESSION.lock().unwrap();
+    let session = guard.as_ref().unwrap();
+    let status = session.status();
+    JsOnnxStatus {
+        loaded: status == ModelStatus::Ready,
+        model_loaded: status != ModelStatus::NotLoaded && status != ModelStatus::Error,
+    }
 }
