@@ -19,12 +19,14 @@ export interface AppSlice {
   shareOpen: boolean
   penDetected: boolean
   readOnly: boolean
+  trainMode: boolean
   set(p: Partial<CanvasState>): void
   setMode(m: ViewMode): void
   setViewport(v: { w: number; h: number }): void
   setShareOpen(v: boolean): void
   setSelf(name: string, color: string): void
   setPenDetected(v?: boolean): void
+  setTrainMode(v: boolean): void
 }
 
 export const createAppSlice: StateCreator<CanvasState, [], [], AppSlice> = (set) => ({
@@ -40,6 +42,7 @@ export const createAppSlice: StateCreator<CanvasState, [], [], AppSlice> = (set)
   shareOpen: false,
   penDetected: false,
   readOnly: false,
+  trainMode: false,
 
   set: (p) => set(p),
   setMode: (m) => set({ mode: m }),
@@ -53,4 +56,5 @@ export const createAppSlice: StateCreator<CanvasState, [], [], AppSlice> = (set)
   },
   setPenDetected: (v = true) =>
     set((s) => (s.penDetected === v ? {} : { penDetected: v })),
+  setTrainMode: (v) => set({ trainMode: v }),
 })

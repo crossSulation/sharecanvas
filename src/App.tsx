@@ -8,6 +8,7 @@ import Hint from './components/Hint'
 import LayerPanel from './components/LayerPanel'
 import PerfOverlay from './components/PerfOverlay'
 import AIPanel from './components/AIPanel'
+import TrainCollector from './components/TrainCollector'
 import { collab } from './lib/collab'
 import { snapshotHashToDoc } from './lib/serialize'
 import { showLogPath } from './lib/aiBackend'
@@ -15,6 +16,7 @@ import { useStore } from './store'
 
 export default function App() {
   const mode = useStore((s) => s.mode)
+  const trainMode = useStore((s) => s.trainMode)
   const [debug] = useState(
     () => new URLSearchParams(window.location.search).has('debug'),
   )
@@ -39,6 +41,10 @@ export default function App() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-white text-neutral-900">
+      {trainMode ? (
+        <TrainCollector />
+      ) : (
+        <>
       <TopBar />
       <div className="relative min-h-0 flex-1">
         {mode === '2d' && <Canvas2D />}
@@ -60,6 +66,8 @@ export default function App() {
         <ShareDialog />
         <AIPanel />
       </div>
+        </>
+      )}
     </div>
   )
 }

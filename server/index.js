@@ -335,6 +335,29 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ path }))
     return
   }
+  if (url.pathname === '/api/train/submit' && req.method === 'POST') {
+    let body = ''
+    req.on('data', (chunk) => body += chunk)
+    req.on('end', () => {
+      try {
+        const { samples } = JSON.parse(body)
+        const dir = join(ROOT, 'train_data')
+        mkdirSync(dir, { recursive: true })
+        for (const s of samples || []) {
+          const file = join(dir, `${s.label}.jsonl`)
+          const line = JSON.stringify({ points: s.points, label: s.label, ts: Date.now() }) + '\n'
+          writeFileSync(file, line, { flag: 'a' })
+        }
+        console.log(`[train] saved ${(samples || []).length} samples to train_data/`)
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ ok: true, count: (samples || []).length }))
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: err?.message }))
+      }
+    })
+    return
+  }
   if (url.pathname === '/api/ai/beautify' && req.method === 'POST') {
     if (!nativeAI) {
       res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' })

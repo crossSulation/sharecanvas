@@ -35,6 +35,8 @@ export default function TopBar() {
   const hasContent = useStore(
     (s) => s.doc.strokes.length + s.doc.shapes.length + s.doc.texts.length + s.doc.objects.length > 0,
   )
+  const trainMode = useStore((s) => s.trainMode)
+  const setTrainMode = useStore((s) => s.setTrainMode)
   const otherUsers = Object.values(users).filter((u) => u.id !== selfId).length
   const [menuOpen, setMenuOpen] = useState(false)
   const [callActive, setCallActive] = useState(false)
@@ -129,6 +131,22 @@ export default function TopBar() {
       </div>
 
       <div className="flex-1" />
+
+      {isTauriApp && (
+        <button
+          onClick={() => setTrainMode(!trainMode)}
+          data-testid="train-toggle"
+          title={trainMode ? '退出训练模式' : '训练样本收集'}
+          className={`flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+            trainMode ? 'bg-violet-100 text-violet-700' : 'text-zinc-500 hover:bg-zinc-100'
+          }`}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+            <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+          <span className="hidden sm:inline">训练</span>
+        </button>
+      )}
 
       {penDetected && (
         <div data-testid="pen-indicator"
