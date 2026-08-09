@@ -13,16 +13,17 @@ mod helpers {
     use crate::Point;
 
     pub const MAX_POINTS: usize = 100;
-    pub const SHAPE_LABELS: [(&str, &str); 9] = [
+    pub const SHAPE_LABELS: [(&str, &str); 10] = [
         ("circle", "ellipse"),
         ("square", "rect"),
         ("line", "line"),
         ("triangle", "triangle"),
         ("arrow", "arrow"),
         ("diamond", "diamond"),
-        ("star", "diamond"),
+        ("star", "star"),
         ("parallelogram", "parallelogram"),
         ("hexagon", "hexagon"),
+        ("trapezoid", "trapezoid"),
     ];
 
     pub fn normalize_points(points: &[Point]) -> Vec<Point> {
