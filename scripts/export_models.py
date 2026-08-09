@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Export ONNX sketch AI models. uv pip install -r scripts/requirements.txt"""
 
-import argparse, os, numpy as np
+import argparse, os, json, numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.model_selection import cross_val_score
 from skl2onnx import convert_sklearn
@@ -192,6 +192,39 @@ def gen_synthetic_samples(label, n=300):
     )
 
 
+def load_real_samples(label, train_dir="train_data"):
+    """从 train_data/{label}.jsonl 加载手绘数据，转为模型输入格式"""
+    path = os.path.join(train_dir, f"{label}.jsonl")
+    if not os.path.exists(path):
+        return None
+    all_points = []
+    with open(path) as f:
+        for line in f:
+            try:
+                entry = json.loads(line)
+                strokes = entry.get("strokes", [entry.get("points", [])])
+                all_pts = []
+                for st in strokes:
+                    for pt in st:
+                        all_pts.extend([pt["x"], pt["y"]])
+                # 去重采样到 MAX_POINTS
+                if len(all_pts) >= 4:
+                    t = np.linspace(0, 1, MAX_POINTS * 2)
+                    idx = (t * (len(all_pts) // 2 - 1)).astype(int) * 2
+                    sampled = np.array([all_pts[j] for j in idx], dtype=np.float32)
+                    all_points.append(sampled)
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+    if not all_points:
+        return None
+    return np.array(all_points, dtype=np.float32)
+
+
+def real_samples_to_points(samples):
+    """将 train_data jsonl 中的样本转为 bitmap_to_points 兼容格式"""
+    return samples
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="models/")
@@ -217,6 +250,13 @@ def main():
             synth = gen_synthetic_samples(label, 2000)
             X_list.append(synth)
             y_list.extend([i] * len(synth))
+
+        # 加载手绘训练数据（train_data/{label}.jsonl）
+        real = load_real_samples(label)
+        if real is not None and len(real) > 0:
+            print(f"  {label}: {len(real)} real hand-drawn samples loaded")
+            X_list.append(real)
+            y_list.extend([i] * len(real))
 
     X = np.vstack(X_list).astype(np.float32)
     y = np.array(y_list)
