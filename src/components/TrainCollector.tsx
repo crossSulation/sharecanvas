@@ -154,8 +154,6 @@ export default function TrainCollector() {
 
   const clearSamples = () => setSamples([])
 
-  const strokeCount = strokesRef.current.length + (activeRef.current.length > 0 ? 1 : 0)
-
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-100 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-300 bg-white p-5 shadow-lg">
