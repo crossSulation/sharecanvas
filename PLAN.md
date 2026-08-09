@@ -35,7 +35,7 @@
 - [x] L2: 协作增强（评论/标注、版本历史 diff、权限管理、只读分享）
 - [x] L3: 模板市场（流程图、思维导图、故事板等预置模板）
 - [ ] L4: WebRTC 音视频通话
-- [x] L5: AI 辅助绘图 — 形状检测 + ONNX 模型 + 函数曲线（见下方详情）
+- [x] L5: AI 辅助绘图 — 形状检测 + ONNX 模型 + 函数曲线（结构识别规划中，见下方详情）
 - [ ] L6: 导出格式扩展（PNG/SVG/PDF）
 - [ ] L7: 虚拟化渲染（只渲染视口内元素）
 - [x] L8: 桌面端应用（Tauri v2 + 移动端）
@@ -135,11 +135,42 @@ classify_shape(points)
 | `server/index.js` | Node.js AI 端点 + native addon 加载 |
 | `src-tauri/src/lib.rs` | Tauri AI 命令 |
 
-### 待完成
+### 下一步计划
+
+#### 结构识别（表格、流程图、图表）
+
+当前已实现单形状识别，下一步从"这个像什么"升级到"这些怎么排列的"：
+
+**阶段一：图元提取（已有）**
+
+当前 `detect_shape` 已将手绘笔画转为图元列表（rect、arrow、line、text 等），整张画布美化后即为一组图元。
+
+**阶段二：纯规则结构识别**
+
+无需 ML，规则匹配即可覆盖大部分场景：
+
+```
+表格：3+个 rect 网格排列（行列对齐）+ line 连接 → table
+流程图：rect/roundrect/diamond 由 arrow 有向连接 → flowchart  
+柱状图：N 个 rect 底部对齐、等宽、不同高度 → bar chart
+折线图：多段 line 首尾相连形成折线 + 坐标轴 → line chart
+```
+
+实现：在 Rust/JS 端加 `detect_structure(primitives: &[Shape])` 函数，返回结构类型 + 置信度。
+
+**阶段三：GNN 图神经网络（复杂场景）**
+
+自由手绘的不规则表格、混合图表等用 GNN：
+- 图元作为节点（类型 + 位置 + 大小）
+- 空间关系作为边（邻接、对齐、包含、连接）
+- 轻量 GNN → 结构分类
+- 训练数据：规则自动生成（随机表格/流程图 → 拆成图元 → 标注），无需人工
+
+**其他待完成**
 
 - 风格迁移（style transfer）
 - 文字转图片（text-to-image）
-- ONNX 模型训练优化
+- ONNX 模型架构升级（1D CNN 替代 MLP）
 
 ---
 
