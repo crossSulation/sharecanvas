@@ -141,7 +141,8 @@ export default function TrainCollector() {
         body: JSON.stringify({ samples }),
       })
       if (res.ok) {
-        flash(`已提交 ${samples.length} 条样本`)
+        const data = await res.json()
+        flash(`已提交 ${data.count} 条样本 → ${data.dir}`)
         setSamples([])
       } else {
         flash('提交失败')

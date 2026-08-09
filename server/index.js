@@ -350,9 +350,9 @@ const server = http.createServer((req, res) => {
           const line = JSON.stringify(entry) + '\n'
           writeFileSync(file, line, { flag: 'a' })
         }
-        console.log(`[train] saved ${(samples || []).length} samples to train_data/`)
+        console.log(`[train] saved ${(samples || []).length} samples to ${dir}/`)
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
-        res.end(JSON.stringify({ ok: true, count: (samples || []).length }))
+        res.end(JSON.stringify({ ok: true, count: (samples || []).length, dir }))
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify({ error: err?.message }))
