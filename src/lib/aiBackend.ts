@@ -8,18 +8,25 @@ import type { Pt } from '../types'
 interface BackendAI {
   beautify_stroke(args: { points: { x: number; y: number }[] }): Promise<{
     points: { x: number; y: number }[]
-    detected_shape: { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number } | null
+    detectedShape: { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number } | null
   }>
 }
 
 type BackendName = 'tauri' | 'native-server' | 'js-fallback'
 
 export async function showLogPath() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!(window as any).__TAURI_INTERNALS__) {
+    console.log('%c[AI] log: %crunning in browser, no file log', 'color:#a1a1aa', 'color:#a1a1aa')
+    return
+  }
   try {
     const { invoke } = await import('@tauri-apps/api/core')
     const path = await invoke<string>('log_file_path')
-    if (path) console.log('%c[AI] log file: %c%s', 'color:#a1a1aa', 'color:#3b82f6', path)
-  } catch { /* not in Tauri */ }
+    console.log('%c[AI] log file: %c%s', 'color:#a1a1aa', 'color:#3b82f6', path || '(empty — path not set)')
+  } catch (e) {
+    console.log('%c[AI] log file error: %c%s', 'color:#a1a1aa', 'color:#f87171', String(e))
+  }
 }
 
 async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
@@ -150,7 +157,7 @@ export async function beautifySelected(): Promise<number> {
     if (backend) {
       const result = await backend.beautify_stroke({ points: pts })
       const smoothed = result.points as Pt[]
-      const detected = result.detected_shape
+      const detected = result.detectedShape
 
       if (detected && detected.confidence > 0.85 && pts.length > 10) {
         const result = handleDetected(id, detected, st.color, st.size, st.layer)
