@@ -78,9 +78,25 @@ impl MlWeights {
         let min_y = ys.iter().cloned().fold(f64::INFINITY, f64::min);
         let max_y = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
         let scale = (max_x - min_x).max(max_y - min_y).max(1.0);
-        for i in 0..points.len().min(MAX_POINTS) {
-            input[i * 2] = ((points[i].x - min_x) / scale * 2.0 - 1.0) as f32;
-            input[i * 2 + 1] = ((points[i].y - min_y) / scale * 2.0 - 1.0) as f32;
+        let cx = (min_x + max_x) / 2.0;
+        let cy = (min_y + max_y) / 2.0;
+
+        // 角度排序：与 QuickDraw 训练数据一致
+        let mut sorted: Vec<&Point> = points.iter().collect();
+        sorted.sort_by(|a, b| {
+            let a_angle = (a.y - cy).atan2(a.x - cx);
+            let b_angle = (b.y - cy).atan2(b.x - cx);
+            a_angle.partial_cmp(&b_angle).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // 归一化：对齐 QuickDraw 的 (x/14-1, y/14-1)，用最大边长保证等比例
+        let half = scale / 2.0;
+        for i in 0..MAX_POINTS {
+            let t = i as f64 / (MAX_POINTS as f64 - 1.0);
+            let idx = (t * (sorted.len() - 1) as f64) as usize;
+            let p = sorted[idx.min(sorted.len() - 1)];
+            input[i * 2] = ((p.x - cx) / half) as f32;
+            input[i * 2 + 1] = ((p.y - cy) / half) as f32;
         }
 
         let in_dim = self.in_dim;
