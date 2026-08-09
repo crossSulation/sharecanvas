@@ -132,21 +132,19 @@ export default function TopBar() {
 
       <div className="flex-1" />
 
-      {(
-        <button
-          onClick={() => setTrainMode(!trainMode)}
-          data-testid="train-toggle"
-          title={trainMode ? '退出训练模式' : '训练样本收集'}
-          className={`flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
-            trainMode ? 'bg-violet-100 text-violet-700' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'
-          }`}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-          </svg>
-          <span className="hidden sm:inline">训练</span>
-        </button>
-      )}
+      <button
+        onClick={() => setTrainMode(!trainMode)}
+        data-testid="train-toggle"
+        title={trainMode ? '退出训练模式' : '训练样本收集'}
+        className={`flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
+          trainMode ? 'bg-violet-100 text-violet-700' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'
+        }`}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </svg>
+        <span className="hidden sm:inline">训练</span>
+      </button>
 
       {penDetected && (
         <div data-testid="pen-indicator"
@@ -238,6 +236,13 @@ export default function TopBar() {
                 </button>
               ))}
               <div className="mx-2 my-1 border-t border-zinc-100" />
+              <button onClick={() => { setTrainMode(!trainMode); setMenuOpen(false) }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors ${trainMode ? 'bg-violet-50 text-violet-700 font-medium' : 'text-zinc-600 hover:bg-zinc-50'}`}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                训练样本收集
+              </button>
               <button onClick={() => { if (hasContent && window.confirm(t('actions.confirmClearScreen'))) { clearScreen(); setMenuOpen(false) } }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="4" width="20" height="14" rx="2" /><path d="M8 21h8" /><path d="M12 17.5V21" /><path d="m9.5 9.5 5 5" /><path d="m14.5 9.5-5 5" /></svg>
