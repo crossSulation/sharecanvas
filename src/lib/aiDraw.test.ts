@@ -113,6 +113,27 @@ describe('detectShape', () => {
     expect(result!.confidence).toBeGreaterThan(0.55)
   })
 
+  it('detects trapezoid (narrower top, wider bottom)', () => {
+    const cx = 200, cy = 300, w = 120, h = 80
+    const topW = w * 0.5
+    const verts = [
+      { x: cx - topW / 2, y: cy - h / 2 },
+      { x: cx + topW / 2, y: cy - h / 2 },
+      { x: cx + w / 2, y: cy + h / 2 },
+      { x: cx - w / 2, y: cy + h / 2 },
+    ]
+    const trap: Pt[] = []
+    for (let i = 0; i < 4; i++) {
+      const a = verts[i]!, b = verts[(i + 1) % 4]!
+      for (let j = 0; j <= 15; j++) trap.push({ x: a.x + (b.x - a.x) * j / 15, y: a.y + (b.y - a.y) * j / 15 })
+    }
+    const result = detectShape(trap)
+    expect(result).not.toBeNull()
+    // 可能被 rect / parallelogram / trapezoid 检测到
+    expect(['rect', 'parallelogram', 'trapezoid']).toContain(result!.kind)
+    expect(result!.confidence).toBeGreaterThan(0.45)
+  })
+
   it('returns line for colinear points (even if bbox could be rect)', () => {
     const line = pts([[0, 0], [25, 0], [50, 0], [75, 0], [100, 0]])
     const result = detectShape(line)

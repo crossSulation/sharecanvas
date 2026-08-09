@@ -63,7 +63,7 @@ export function smoothPoints(points: Pt[], passes = 2): Pt[] {
 }
 
 export interface DetectedShape {
-  kind: 'rect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line' | 'linear' | 'quadratic'
+  kind: 'rect' | 'ellipse' | 'trapezoid' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line' | 'linear' | 'quadratic'
   x0: number
   y0: number
   x1: number
@@ -125,6 +125,11 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   const hexConf = evalHexagon(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
   if (hexConf > 0.55 && aspectRatio > 0.5 && aspectRatio < 2.0) {
     return { kind: 'hexagon', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: hexConf }
+  }
+
+  const trapConf = evalTrapezoid(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
+  if (trapConf > 0.5 && aspectRatio > 0.4 && aspectRatio < 3.5) {
+    return { kind: 'trapezoid', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: trapConf }
   }
 
   const linConf = evalLinear(points)
@@ -310,4 +315,39 @@ function evalQuadratic(points: Pt[]): { a: number; b: number; c: number; r2: num
   }
   const r2 = ssTot < 1e-12 ? 0 : 1 - ssRes / ssTot
   return { a, b, c, r2: Math.max(0, r2) }
+}
+
+function evalTrapezoid(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {
+  const w = bbox.x1 - bbox.x0
+  const h = bbox.y1 - bbox.y0
+  if (w < 15 || h < 15) return 0
+  const cx = (bbox.x0 + bbox.x1) / 2
+  const ratios = [0.45, 0.55, 0.65, 0.75]
+  let best = 0
+  for (const ratio of ratios) {
+    const topHw = w * ratio / 2
+    const verts = [
+      { x: cx - topHw, y: bbox.y0 },
+      { x: cx + topHw, y: bbox.y0 },
+      { x: bbox.x1, y: bbox.y1 },
+      { x: bbox.x0, y: bbox.y1 },
+    ]
+    let onEdge = 0
+    for (const p of points) {
+      for (let i = 0; i < 4; i++) {
+        const a = verts[i]!
+        const b = verts[(i + 1) % 4]!
+        const dx = b.x - a.x, dy = b.y - a.y
+        const len2 = dx * dx + dy * dy
+        if (len2 < 1) continue
+        let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
+        t = Math.max(0, Math.min(1, t))
+        const px = a.x + t * dx, py = a.y + t * dy
+        if (Math.hypot(p.x - px, p.y - py) < w * 0.18) { onEdge++; break }
+      }
+    }
+    const conf = onEdge / points.length
+    if (conf > best) best = conf
+  }
+  return best
 }

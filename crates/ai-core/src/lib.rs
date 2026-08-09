@@ -86,6 +86,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_ellipse(points, bbox) { return Some(s); }
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
+    if let Some(s) = try_trapezoid(points, bbox) { return Some(s); }
     if let Some(s) = try_star(points, bbox) { return Some(s); }
     if let Some(s) = try_linear(points, bbox) { return Some(s); }
     if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
@@ -357,6 +358,60 @@ fn try_hexagon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
         log_decision("pure","hexagon", "hexagon", conf);
         return Some(DetectedShape {
             kind: "hexagon".into(),
+            x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+            confidence: conf,
+            func_params: None,
+        });
+    }
+    None
+}
+
+fn eval_trapezoid(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    if w < 15.0 || h < 15.0 { return 0.0; }
+    let cx = (bbox.0 + bbox.2) / 2.0;
+    // 扫描 3 种上底宽度比，取最佳
+    let ratios = [0.45, 0.55, 0.65, 0.75];
+    let mut best = 0.0f64;
+    for &ratio in &ratios {
+        let top_hw = w * ratio / 2.0;
+        let verts = [
+            (cx - top_hw, bbox.1),  // top-left
+            (cx + top_hw, bbox.1),  // top-right
+            (bbox.2, bbox.3),        // bottom-right
+            (bbox.0, bbox.3),        // bottom-left
+        ];
+        let mut on_edge = 0usize;
+        for p in points {
+            for i in 0..4 {
+                let (ax, ay) = verts[i];
+                let (bx, by) = verts[(i + 1) % 4];
+                let dx = bx - ax; let dy = by - ay;
+                let len2 = dx * dx + dy * dy;
+                if len2 < 1.0 { continue; }
+                let t = ((p.x - ax) * dx + (p.y - ay) * dy) / len2;
+                let t_clamped = t.max(0.0).min(1.0);
+                let px = ax + t_clamped * dx;
+                let py = ay + t_clamped * dy;
+                if ((p.x - px).powi(2) + (p.y - py).powi(2)).sqrt() < w * 0.18 {
+                    on_edge += 1;
+                    break;
+                }
+            }
+        }
+        let conf = on_edge as f64 / points.len() as f64;
+        if conf > best { best = conf; }
+    }
+    best
+}
+
+fn try_trapezoid(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let conf = eval_trapezoid(points, bbox);
+    if conf > 0.5 {
+        log_decision("pure","trapezoid", "trapezoid", conf);
+        return Some(DetectedShape {
+            kind: "trapezoid".into(),
             x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
             confidence: conf,
             func_params: None,

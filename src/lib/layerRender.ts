@@ -107,6 +107,15 @@ export function polygonPoints(sh: Shape): Pt[] {
       }
       return pts
     }
+    case 'trapezoid': {
+      const topHw = w * 0.5 / 2
+      return [
+        { x: cx - topHw, y: y0 },
+        { x: cx + topHw, y: y0 },
+        { x: x1, y: y1 },
+        { x: x0, y: y1 },
+      ]
+    }
     case 'diamond':
       return [
         { x: cx, y: y0 },
@@ -138,7 +147,7 @@ export function polygonPoints(sh: Shape): Pt[] {
 }
 
 function outlinePoints(sh: Shape): Pt[] {
-  if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
+  if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'trapezoid' || sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
     return polygonPoints(sh)
   }
   const x0 = Math.min(sh.x0, sh.x1)
@@ -256,7 +265,7 @@ export function drawShape(ctx: Ctx2D, sh: Shape, doc: Doc): void {
       0,
       Math.PI * 2,
     )
-  } else if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
+  } else if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'trapezoid' || sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
     const pts = polygonPoints(sh)
     ctx.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
