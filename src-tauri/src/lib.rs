@@ -9,15 +9,7 @@ static AI_SESSION: OnceLock<Mutex<OnnxSession>> = OnceLock::new();
 fn log_dir() -> PathBuf {
     #[cfg(target_os = "android")]
     {
-        // External storage for easy adb pull, fallback to /data/local/tmp
-        if let Ok(d) = std::env::var("EXTERNAL_STORAGE") {
-            if !d.is_empty() {
-                let p = PathBuf::from(&d).join("sharecanvas");
-                let _ = std::fs::create_dir_all(&p);
-                return p;
-            }
-        }
-        // 无需权限的后备路径
+        // /data/local/tmp 全局可写，无需权限
         let p = PathBuf::from("/data/local/tmp/sharecanvas");
         let _ = std::fs::create_dir_all(&p);
         p
