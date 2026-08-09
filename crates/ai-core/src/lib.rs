@@ -43,6 +43,45 @@ pub fn smooth_points(points: &[Point], passes: usize) -> Vec<Point> {
     result
 }
 
+fn has_arrowhead(points: &[Point], first: &Point, last: &Point) -> bool {
+    if points.len() < 10 { return false; }
+    let dx = last.x - first.x;
+    let dy = last.y - first.y;
+    let len2 = dx * dx + dy * dy;
+    if len2 < 400.0 { return false; }  // 至少 20px 长
+
+    // 计算中间段落点到直线的偏离度（基线）
+    let mid_start = points.len() / 3;
+    let mid_end = points.len() * 2 / 3;
+    let mut mid_dev = 0.0f64;
+    let mut mid_count = 0;
+    for i in mid_start..mid_end {
+        let t = ((points[i].x - first.x) * dx + (points[i].y - first.y) * dy) / len2;
+        let proj_x = first.x + t * dx;
+        let proj_y = first.y + t * dy;
+        mid_dev += ((points[i].x - proj_x).powi(2) + (points[i].y - proj_y).powi(2)).sqrt();
+        mid_count += 1;
+    }
+    let mid_avg = if mid_count > 0 { mid_dev / mid_count as f64 } else { 0.0 };
+
+    // 末端段落（最后 20% 的点）偏离度
+    let end_start = (points.len() as f64 * 0.8) as usize;
+    let end_start = end_start.max(mid_end).min(points.len() - 2);
+    let mut end_dev = 0.0f64;
+    let mut end_count = 0;
+    for i in end_start..points.len() {
+        let t = ((points[i].x - first.x) * dx + (points[i].y - first.y) * dy) / len2;
+        let proj_x = first.x + t * dx;
+        let proj_y = first.y + t * dy;
+        end_dev += ((points[i].x - proj_x).powi(2) + (points[i].y - proj_y).powi(2)).sqrt();
+        end_count += 1;
+    }
+    let end_avg = if end_count > 0 { end_dev / end_count as f64 } else { 0.0 };
+
+    // 末端偏离度 > 基线偏离度 2.5x → 有箭头
+    end_avg > mid_avg * 2.5 && end_avg > 8.0
+}
+
 pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if points.len() < 4 {
         return None;
@@ -68,9 +107,8 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
 
     let line_conf = eval_line(points, first, last);
     if line_conf > 0.85 {
-        let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
-        let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
-        let kind = if angle.abs() < 15.0 && dist > 80.0 { "arrow" } else { "line" };
+        let is_arrow = has_arrowhead(points, first, last);
+        let kind = if is_arrow { "arrow" } else { "line" };
         log_decision("pure","line/arrow", kind, line_conf);
         return Some(DetectedShape {
             kind: kind.into(),

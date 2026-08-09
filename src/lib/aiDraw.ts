@@ -72,6 +72,37 @@ export interface DetectedShape {
   funcParams?: number[]
 }
 
+function hasArrowhead(points: Pt[], first: Pt, last: Pt): boolean {
+  if (points.length < 10) return false
+  const dx = last.x - first.x
+  const dy = last.y - first.y
+  const len2 = dx * dx + dy * dy
+  if (len2 < 400) return false
+
+  // 中间段偏离度
+  const midStart = Math.floor(points.length / 3)
+  const midEnd = Math.floor(points.length * 2 / 3)
+  let midDev = 0, midCount = 0
+  for (let i = midStart; i < midEnd; i++) {
+    const t = ((points[i]!.x - first.x) * dx + (points[i]!.y - first.y) * dy) / len2
+    midDev += Math.hypot(points[i]!.x - (first.x + t * dx), points[i]!.y - (first.y + t * dy))
+    midCount++
+  }
+  const midAvg = midCount > 0 ? midDev / midCount : 0
+
+  // 末端 20% 偏离度
+  const endStart = Math.max(Math.floor(points.length * 0.8), midEnd)
+  let endDev = 0, endCount = 0
+  for (let i = endStart; i < points.length; i++) {
+    const t = ((points[i]!.x - first.x) * dx + (points[i]!.y - first.y) * dy) / len2
+    endDev += Math.hypot(points[i]!.x - (first.x + t * dx), points[i]!.y - (first.y + t * dy))
+    endCount++
+  }
+  const endAvg = endCount > 0 ? endDev / endCount : 0
+
+  return endAvg > midAvg * 2.5 && endAvg > 8
+}
+
 export function detectShape(points: Pt[]): DetectedShape | null {
   if (points.length < 4) return null
 
@@ -92,12 +123,8 @@ export function detectShape(points: Pt[]): DetectedShape | null {
 
   const lineConf = evalLine(points, first, last)
   if (lineConf > 0.85) {
-    const angle = Math.atan2(last.y - first.y, last.x - first.x) * (180 / Math.PI)
-    const dist = Math.hypot(last.x - first.x, last.y - first.y)
-    if (Math.abs(angle) < 15 && dist > 80) {
-      return { kind: 'arrow', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
-    }
-    return { kind: 'line', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
+    const isArrow = hasArrowhead(points, first, last)
+    return { kind: isArrow ? 'arrow' : 'line', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
   }
 
   const aspectRatio = w / Math.max(h, 1)
