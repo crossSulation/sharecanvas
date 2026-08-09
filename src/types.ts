@@ -18,7 +18,7 @@ export interface Stroke {
   layer?: string
 }
 
-export type ShapeKind = 'rect' | 'roundrect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'line' | 'arrow'
+export type ShapeKind = 'triangle' | 'star' | 'rect' | 'roundrect' | 'ellipse' | 'diamond' | 'parallelogram' | 'hexagon' | 'line' | 'arrow'
 
 export interface Shape {
   id: string

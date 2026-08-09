@@ -205,7 +205,7 @@ export function shapeDist(p: Pt, sh: Shape, doc?: Doc): number {
       distToSegment(p, { x: x0, y: y1 }, { x: x0, y: y0 }),
     )
   }
-  if (sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
+  if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'diamond' || sh.kind === 'parallelogram' || sh.kind === 'hexagon') {
     return distToPolygon(p, polygonPoints(sh))
   }
   const cx = (sh.x0 + sh.x1) / 2
