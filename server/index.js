@@ -345,10 +345,16 @@ const server = http.createServer((req, res) => {
         mkdirSync(dir, { recursive: true })
         for (const s of samples || []) {
           const file = join(dir, `${s.label}.jsonl`)
-          // 每个样本：label + strokes（多笔画数组）
+          const before = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).length : 0
           const entry = { label: s.label, strokes: s.strokes || [s.points || []], ts: Date.now() }
           const line = JSON.stringify(entry) + '\n'
           writeFileSync(file, line, { flag: 'a' })
+          const after = before + 1
+          if (before > 0) {
+            console.log(`[train] ${s.label}.jsonl: appended (${before}→${after})`)
+          } else {
+            console.log(`[train] ${s.label}.jsonl: created (${after} entries)`)
+          }
         }
         console.log(`[train] saved ${(samples || []).length} samples to ${dir}/`)
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
