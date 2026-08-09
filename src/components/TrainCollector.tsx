@@ -42,6 +42,19 @@ export default function TrainCollector() {
         ctx.stroke()
       }
     }
+    // 画笔画端点标记，帮助对齐连接
+    ctx.fillStyle = '#ef4444'
+    for (let i = 0; i < strokesRef.current.length; i++) {
+      const pts = strokesRef.current[i]!
+      if (pts.length > 0) {
+        // 起点：蓝色
+        ctx.fillStyle = '#3b82f6'
+        ctx.beginPath(); ctx.arc(pts[0]!.x, pts[0]!.y, 4, 0, Math.PI * 2); ctx.fill()
+        // 终点：红色
+        ctx.fillStyle = '#ef4444'
+        ctx.beginPath(); ctx.arc(pts[pts.length - 1]!.x, pts[pts.length - 1]!.y, 4, 0, Math.PI * 2); ctx.fill()
+      }
+    }
   }, [])
 
   const toCanvas = (e: React.PointerEvent<HTMLCanvasElement>): Pt => {
