@@ -127,9 +127,10 @@ fn eval_rect(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     for p in points {
         let dx = (p.x - cx).abs();
         let dy = (p.y - cy).abs();
-        let edge_x = (dx - hw).abs() < (hw * 0.3).max(8.0);
-        let edge_y = (dy - hh).abs() < (hh * 0.3).max(8.0);
-        if edge_x || edge_y {
+        let near_x = (dx - hw).abs() < (hw * 0.18).max(5.0);
+        let near_y = (dy - hh).abs() < (hh * 0.18).max(5.0);
+        // 靠近 x 边界但远离 y 边界 → 竖边；靠近 y 但远离 x → 横边；同时靠近 → 角
+        if (near_x && dy < hh * 0.7) || (near_y && dx < hw * 0.7) || (near_x && near_y) {
             on_edge += 1;
         }
     }

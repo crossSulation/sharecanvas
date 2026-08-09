@@ -190,9 +190,9 @@ function evalRect(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: 
   for (const p of points) {
     const dx = Math.abs(p.x - cx)
     const dy = Math.abs(p.y - cy)
-    const edgeX = Math.abs(dx - hw) < Math.max(hw * 0.3, 8)
-    const edgeY = Math.abs(dy - hh) < Math.max(hh * 0.3, 8)
-    if (edgeX || edgeY) onEdge++
+    const nearX = Math.abs(dx - hw) < Math.max(hw * 0.18, 5)
+    const nearY = Math.abs(dy - hh) < Math.max(hh * 0.18, 5)
+    if ((nearX && dy < hh * 0.7) || (nearY && dx < hw * 0.7) || (nearX && nearY)) onEdge++
   }
   return onEdge / points.length
 }
