@@ -6,7 +6,7 @@ const CANVAS_H = 280
 
 interface Sample {
   label: string
-  points: Pt[]
+  strokes: Pt[][]  // 每个笔画是一组点
 }
 
 export default function TrainCollector() {
@@ -97,11 +97,13 @@ export default function TrainCollector() {
     if (!label.trim()) { flash('请先输入标签'); return }
     const totalPts = strokesRef.current.flat()
     if (totalPts.length < 5) { flash('笔迹太短，请重新绘制'); return }
-    const normalized: Pt[] = totalPts.map((p) => ({
-      x: (p.x / CANVAS_W) * 2 - 1,
-      y: (p.y / CANVAS_H) * 2 - 1,
-    }))
-    setSamples((prev) => [...prev, { label: label.trim(), points: normalized }])
+    const normalized: Pt[][] = strokesRef.current.map((stroke) =>
+      stroke.map((p) => ({
+        x: (p.x / CANVAS_W) * 2 - 1,
+        y: (p.y / CANVAS_H) * 2 - 1,
+      }))
+    )
+    setSamples((prev) => [...prev, { label: label.trim(), strokes: normalized }])
     strokesRef.current = []
     activeRef.current = []
     const c = canvasRef.current

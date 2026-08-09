@@ -345,7 +345,9 @@ const server = http.createServer((req, res) => {
         mkdirSync(dir, { recursive: true })
         for (const s of samples || []) {
           const file = join(dir, `${s.label}.jsonl`)
-          const line = JSON.stringify({ points: s.points, label: s.label, ts: Date.now() }) + '\n'
+          // 每个样本：label + strokes（多笔画数组）
+          const entry = { label: s.label, strokes: s.strokes || [s.points || []], ts: Date.now() }
+          const line = JSON.stringify(entry) + '\n'
           writeFileSync(file, line, { flag: 'a' })
         }
         console.log(`[train] saved ${(samples || []).length} samples to train_data/`)
