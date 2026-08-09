@@ -132,13 +132,13 @@ export default function TopBar() {
 
       <div className="flex-1" />
 
-      {isTauriApp && (
+      {(
         <button
           onClick={() => setTrainMode(!trainMode)}
           data-testid="train-toggle"
           title={trainMode ? '退出训练模式' : '训练样本收集'}
           className={`flex h-8 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors ${
-            trainMode ? 'bg-violet-100 text-violet-700' : 'text-zinc-500 hover:bg-zinc-100'
+            trainMode ? 'bg-violet-100 text-violet-700' : 'bg-violet-50 text-violet-600 hover:bg-violet-100'
           }`}
         >
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
