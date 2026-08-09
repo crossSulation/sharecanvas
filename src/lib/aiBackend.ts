@@ -183,7 +183,7 @@ export async function beautifySelected(): Promise<number> {
     const smoothed = result.points as Pt[]
     const detected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
 
-    if (detected && detected.confidence > 0.85 && allPts.length > 10) {
+    if (detected && detected.confidence > 0.6 && allPts.length > 10) {
       const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
       // 删除其他笔画
       if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
@@ -220,7 +220,7 @@ export async function beautifySelected(): Promise<number> {
     const smoothed = smoothPoints(allPts, 2)
     const detected = detectShape(smoothed)
 
-    if (detected && detected.confidence > 0.85 && allPts.length > 10) {
+    if (detected && detected.confidence > 0.6 && allPts.length > 10) {
       const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
       if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
       console.log(

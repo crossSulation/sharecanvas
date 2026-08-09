@@ -96,12 +96,14 @@ RMS 比 MAE 更好地惩罚离散度：手抖幅度一致但频率高 → MAE �
 
 ### ONNX 与纯算法的协作
 
+ONNX 为主，纯算法为辅（保底）：
+
 ```
 classify_shape(points)
-  ├── conf >= 0.85 → 直接用 ONNX 结果
-  ├── conf < 0.85 → 同时跑 detect_shape（纯算法）
+  ├── conf >= 0.6 → 直接用 ONNX 结果
+  ├── conf < 0.6  → 同时跑 detect_shape（纯算法）
   │     ├── ONNX conf > pure conf → 用 ONNX
-  │     └── pure conf >= ONNX conf → 用 pure（日志: pure(beats-onnx)）
+  │     └── pure conf >= ONNX conf → 用 pure
   └── None / error → 纯算法兜底
 ```
 

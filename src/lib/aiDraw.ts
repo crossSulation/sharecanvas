@@ -24,7 +24,7 @@ export function beautifySelected() {
 
     const smoothed = smoothPoints(pts, 2)
     const detected = detectShape(smoothed)
-    if (detected && detected.confidence > 0.85 && pts.length > 10) {
+    if (detected && detected.confidence > 0.6 && pts.length > 10) {
       yDeleteItems('strokes', [id])
       yPush('shapes', [{
         id: createId('sh'),

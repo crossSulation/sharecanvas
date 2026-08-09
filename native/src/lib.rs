@@ -69,7 +69,7 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 
     let (smoothed, detected, onnx_used) = if session.status() == ModelStatus::Ready {
         match session.classify_shape(&pts) {
-            Ok(Some(shape)) if shape.confidence >= 0.85 => (
+            Ok(Some(shape)) if shape.confidence >= 0.6 => (
                 session.smooth_stroke(&pts).unwrap_or_else(|_| smooth_points(&pts, 2)),
                 Some(shape), true,
             ),
