@@ -137,9 +137,8 @@ export default function TrainCollector() {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isTauri = !!(window as any).__TAURI_INTERNALS__
-      // Tauri WebView 中 fetch 相对路径会解析到 tauri.localhost
-      // 用页面实际加载的 URL（Vite 开发服务器地址）构建请求
-      const base = isTauri ? new URL(window.location.href).origin : location.origin
+      // Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效
+      const base = isTauri ? 'http://192.168.1.3:5173' : ''
       const res = await fetch(`${base}/api/train/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
