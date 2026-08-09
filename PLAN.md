@@ -70,33 +70,39 @@
 `detect_shape(points)` 按优先级依次检测，返回第一个满足置信度的形状：
 
 ```
-  ├── line/arrow       (evalLine, conf > 0.65 / 0.6)
-  ├── triangle         (evalTriangle, conf > 0.55)
-  ├── diamond          (evalDiamond, conf > 0.55)
-  ├── rect             (evalRect, conf > 0.55)
-  ├── ellipse          (evalEllipse, conf > 0.6)
-  ├── parallelogram    (evalParallelogram, conf > 0.55)
-  ├── hexagon          (evalHexagon, conf > 0.55)
-  ├── star             (evalStar, conf > 0.5 / 0.45)
-  ├── linear           (evalLinear: 最小二乘法, R² > 0.92)
-  └── quadratic        (evalQuadratic: 3×3 正规方程, R² > 0.88)
+  ├── line/arrow       (evalLine/RMS, conf > 0.65 / 0.6)
+  ├── triangle         (evalTriangle/RMS, conf > 0.65)
+  ├── diamond          (evalDiamond/RMS, conf > 0.55)
+  ├── rect             (evalRect/边缘占比, conf > 0.55)
+  ├── ellipse          (evalCircle/RMS, conf > 0.6)
+  ├── parallelogram    (evalParallelogram/边缘占比, conf > 0.55)
+  ├── hexagon          (evalHexagon/RMS, conf > 0.55)
+  ├── trapezoid        (evalTrapezoid/边缘占比, conf > 0.5)
+  ├── star             (evalStar/RMS, conf > 0.5 / 0.45)
+  ├── linear           (evalLinear: 最小二乘法 R², R² > 0.92)
+  └── quadratic        (evalQuadratic: 正规方程 R², R² > 0.88)
 ```
 
-### 美化逻辑
+### 置信度计算公式
 
-- **普通形状**：检测到后删除原笔画，创建形状 `shapes` 对象（x0,y0,x1,y1 包围盒）
-- **函数曲线** (`linear`/`quadratic`)：不创建形状，用 `funcParams=[a,b]` 或 `[a,b,c]` 重新生成 100 个平滑点，直接更新笔画 `yUpdateStrokePoints()`
-- **无检测**：平滑后保留笔画
+全部改为 **RMS（均方根误差）**，替代之前的均值绝对偏差（MAE）：
 
-### 输出结构
+- **直线/圆/菱形/六边形/五角星**：`1 - sqrt(avg(d²)) / tolerance`
+- **矩形/平行四边形/梯形**：边缘点占比 `onEdge / total`（非偏差类，保持比例）
+- **三角形**：点到三边最小距离的 RMS（之前是简单的边缘阈值判断）
+- **线性/二次函数**：R² 决定系数（本身就是 RMS-based 的平方和比率）
 
-```ts
-interface DetectedShape {
-  kind: string        // 形状类型
-  x0: number; y0: number; x1: number; y1: number  // 包围盒
-  confidence: number  // 0-1
-  funcParams?: number[] // 函数曲线参数 [a,b] 或 [a,b,c]，仅 linear/quadratic
-}
+RMS 比 MAE 更好地惩罚离散度：手抖幅度一致但频率高 → MAE 扣分很多，RMS 合理；少数点大幅跑偏 → MAE 不明显但 RMS 会放大。容差相应调整（+10~25%）。
+
+### ONNX 与纯算法的协作
+
+```
+classify_shape(points)
+  ├── conf >= 0.85 → 直接用 ONNX 结果
+  ├── conf < 0.85 → 同时跑 detect_shape（纯算法）
+  │     ├── ONNX conf > pure conf → 用 ONNX
+  │     └── pure conf >= ONNX conf → 用 pure（日志: pure(beats-onnx)）
+  └── None / error → 纯算法兜底
 ```
 
 ### ONNX 模型
@@ -104,8 +110,17 @@ interface DetectedShape {
 - 引擎：`tract-onnx`（纯 Rust，无需 Python 运行时）
 - 导出：`scripts/export_models.py` 使用 `uv` 隔离环境 (scikit-learn → ONNX)
 - 缓存：QuickDraw 数据缓存到 `samples/*.npy`，避免重复下载
-- 标签：`SHAPE_LABELS` 映射 8 种形状 (0-7)
-- 日志：`log_decision(source=pure|onnx, category, kind, conf)`
+- 标签：`SHAPE_LABELS` 10 类 (circle→ellipse, square→rect, line→line, triangle→triangle, arrow→arrow, diamond→diamond, star→star, parallelogram→parallelogram, hexagon→hexagon, trapezoid→trapezoid)
+- 模型大小：~136KB（MLP 200→128→64→10，34K 参数）
+- 日志：同时写入 logcat 和文件，通过 `set_log_hook` 回调统一输出
+
+### 日志文件
+
+| 环境 | 路径 | 暴露方式 |
+|------|------|---------|
+| Tauri 桌面 | `~/Documents/.sharecanvas/sharecanvas.log` | `invoke('log_file_path')` |
+| Tauri Android | `EXTERNAL_STORAGE/sharecanvas/sharecanvas.log` | `invoke('log_file_path')` |
+| Node.js server | `./sharecanvas-server.log`（CWD） | `GET /api/ai/log-path` |
 
 ### 相关文件
 
