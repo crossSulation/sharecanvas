@@ -10,7 +10,54 @@ pub struct MlWeights {
     in_dim: usize,
 }
 
-const MAX_POINTS: usize = 100;
+const IMG_SIZE: usize = 28;
+
+/// 渲染笔画到 28×28 位图，返回 784 维归一化像素数组
+fn points_to_bitmap(points: &[Point]) -> Vec<f32> {
+    let mut bitmap = vec![0.0f32; IMG_SIZE * IMG_SIZE];
+    if points.len() < 2 { return bitmap; }
+
+    let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
+    let ys: Vec<f64> = points.iter().map(|p| p.y).collect();
+    let min_x = xs.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_x = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let min_y = ys.iter().cloned().fold(f64::INFINITY, f64::min);
+    let max_y = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    let scale = (max_x - min_x).max(max_y - min_y).max(1.0);
+
+    for i in 0..points.len() - 1 {
+        let x0 = ((points[i].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+        let y0 = ((points[i].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+        let x1 = ((points[i + 1].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+        let y1 = ((points[i + 1].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+        // Bresenham 画线 + 高斯加粗（3×3 核）
+        let dx = (x1 - x0).abs();
+        let dy = -(y1 - y0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        let mut x = x0;
+        let mut y = y0;
+        loop {
+            for dy2 in -1isize..=1 {
+                for dx2 in -1isize..=1 {
+                    let nx = x + dx2;
+                    let ny = y + dy2;
+                    if nx >= 0 && nx < IMG_SIZE as isize && ny >= 0 && ny < IMG_SIZE as isize {
+                        let w = if dx2 == 0 && dy2 == 0 { 1.0 } else { 0.5 };
+                        bitmap[(ny as usize) * IMG_SIZE + nx as usize] = (bitmap[(ny as usize) * IMG_SIZE + nx as usize] + w as f32).min(1.0);
+                    }
+                }
+            }
+            if x == x1 && y == y1 { break; }
+            let e2 = 2 * err;
+            if e2 >= dy { err += dy; x += sx; }
+            if e2 <= dx { err += dx; y += sy; }
+        }
+    }
+
+    bitmap
+}
 
 fn matmul_add_relu(out: &mut [f32], inp: &[f32], w: &[f32], b: &[f32], rows: usize, cols: usize) {
     for r in 0..rows {
@@ -70,21 +117,9 @@ impl MlWeights {
     }
 
     pub fn predict(&self, points: &[Point]) -> (usize, f32) {
-        let mut input = vec![0.0f32; MAX_POINTS * 2];
-        // normalize to [-1, 1] range
-        let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
-        let ys: Vec<f64> = points.iter().map(|p| p.y).collect();
-        let min_x = xs.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_x = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let min_y = ys.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_y = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-        let scale = (max_x - min_x).max(max_y - min_y).max(1.0);
-        for i in 0..points.len().min(MAX_POINTS) {
-            input[i * 2] = ((points[i].x - min_x) / scale * 2.0 - 1.0) as f32;
-            input[i * 2 + 1] = ((points[i].y - min_y) / scale * 2.0 - 1.0) as f32;
-        }
-
+        let input = points_to_bitmap(points);
         let in_dim = self.in_dim;
+
         let mut h1 = vec![0.0f32; self.h1];
         let mut h2 = vec![0.0f32; self.h2];
         let mut out = vec![0.0f32; self.num_classes];
