@@ -38,8 +38,20 @@ def download_quickdraw(label, n):
 
 
 def bitmap_to_points(bitmaps):
-    """QuickDraw 数据：28×28 位图保留原始格式，flatten 为 784 维"""
-    return bitmaps.reshape(len(bitmaps), IMG_SIZE * IMG_SIZE).astype(np.float32) / 255.0
+    """QuickDraw 28×28 位图 → 100 点 × 2 坐标（200 维）"""
+    result = np.zeros((len(bitmaps), MAX_POINTS * 2), dtype=np.float32)
+    for i, bm in enumerate(bitmaps):
+        img = bm.reshape(28, 28)
+        ys, xs = np.where(img > 0)
+        if len(xs) < 2:
+            continue
+        idx = np.argsort(np.arctan2(ys - ys.mean(), xs - xs.mean()))
+        xs, ys = xs[idx], ys[idx]
+        t = np.linspace(0, 1, MAX_POINTS)
+        idx_interp = (t * (len(xs) - 1)).astype(int)
+        result[i, ::2] = (xs[idx_interp] / 14.0 - 1.0).astype(np.float32)
+        result[i, 1::2] = (ys[idx_interp] / 14.0 - 1.0).astype(np.float32)
+    return result
 
 
 def stroke_to_bitmap(strokes):
@@ -230,31 +242,31 @@ def gen_synthetic_samples(label, n=300):
     )
 
 
-def load_real_samples(label, train_dir="train_data"):
-    """从 train_data/{label}.jsonl 加载手绘数据，渲染为 28×28 位图"""
+def load_real_samples_coords(label, train_dir="train_data"):
+    """加载手绘数据并转为坐标格式（100点*2=200维）"""
     path = os.path.join(train_dir, f"{label}.jsonl")
     if not os.path.exists(path):
         return None
-    all_bitmaps = []
+    all_samples = []
     with open(path) as f:
         for line in f:
             try:
                 entry = json.loads(line)
                 strokes = entry.get("strokes", [entry.get("points", [])])
-                # 将笔画转为坐标对
-                stroke_pairs = []
+                all_pts = []
                 for st in strokes:
-                    pairs = [(st[j]["x"], st[j]["y"]) for j in range(len(st))]
-                    if pairs:
-                        stroke_pairs.append(pairs)
-                if stroke_pairs:
-                    bm = stroke_to_bitmap(stroke_pairs)
-                    all_bitmaps.append(bm)
+                    for pt in st:
+                        all_pts.extend([pt["x"], pt["y"]])
+                if len(all_pts) >= 4:
+                    t = np.linspace(0, 1, MAX_POINTS * 2)
+                    idx = (t * (len(all_pts) // 2 - 1)).astype(int) * 2
+                    sampled = np.array([all_pts[j] for j in idx], dtype=np.float32)
+                    all_samples.append(sampled)
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
-    if not all_bitmaps:
+    if not all_samples:
         return None
-    return np.array(all_bitmaps, dtype=np.float32)
+    return np.array(all_samples, dtype=np.float32)
 
 
 def real_samples_to_points(samples):
@@ -276,8 +288,7 @@ def main():
         if args.real:
             data = download_quickdraw(label, args.samples)
             if data is not None:
-                # QuickDraw: 28×28 位图直接 flatten → 784 维
-                pts = data.reshape(len(data), IMG_SIZE * IMG_SIZE).astype(np.float32) / 255.0
+                pts = bitmap_to_points(data)
 
         if pts is not None and len(pts) > 0:
             X_list.append(pts)
@@ -285,12 +296,12 @@ def main():
         else:
             if args.real:
                 print(f"  {label}: QuickDraw not available, using synthetic")
-            synth = gen_synthetic_bitmap_samples(label, 2000)
+            synth = gen_synthetic_samples(label, 2000)
             X_list.append(synth)
             y_list.extend([i] * len(synth))
 
-        # 加载手绘训练数据（train_data/{label}.jsonl）
-        real = load_real_samples(label)
+        # 加载手绘训练数据（train_data/{label}.jsonl）— coordinate format
+        real = load_real_samples_coords(label)
         if real is not None and len(real) > 0:
             print(f"  {label}: {len(real)} real hand-drawn samples loaded (oversampled 5x)")
             oversampled = np.tile(real, (5, 1))
@@ -331,7 +342,7 @@ def main():
     print(f"Saved weights: {bin_path} ({os.path.getsize(bin_path) / 1024:.1f} KB)")
 
     # Also export ONNX for reference
-    onx = convert_sklearn(clf, initial_types=[("float_input", FloatTensorType([1, IMG_SIZE * IMG_SIZE]))],
+    onx = convert_sklearn(clf, initial_types=[("float_input", FloatTensorType([1, MAX_POINTS * 2]))],
                           target_opset=15, options={id(clf): {'zipmap': False}})
     import onnx
     from onnxsim import simplify
