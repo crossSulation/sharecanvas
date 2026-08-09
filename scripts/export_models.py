@@ -303,8 +303,9 @@ def main():
         # 加载手绘训练数据（train_data/{label}.jsonl）— coordinate format
         real = load_real_samples_coords(label)
         if real is not None and len(real) > 0:
-            print(f"  {label}: {len(real)} real hand-drawn samples loaded (oversampled 5x)")
-            oversampled = np.tile(real, (5, 1))
+            oversample = 20 if len(real) < 1000 else 5
+            print(f"  {label}: {len(real)} real samples loaded ({oversample}x = {len(real) * oversample})")
+            oversampled = np.tile(real, (oversample, 1))
             X_list.append(oversampled)
             y_list.extend([i] * len(oversampled))
 
