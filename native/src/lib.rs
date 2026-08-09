@@ -1,10 +1,10 @@
 use napi_derive::napi;
 use ai_core::{smooth_points, detect_shape, Point, onnx::{OnnxSession, ModelStatus}};
-use std::sync::Mutex;
+use std::sync::{Mutex, LazyLock};
 use std::path::PathBuf;
 use std::io::Write;
 
-static LOG_PATH: std::sync::LazyLock<PathBuf> = std::sync::LazyLock::new(|| {
+static LOG_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     let dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     std::fs::create_dir_all(&dir).ok();
     let path = dir.join("sharecanvas-server.log");
@@ -20,14 +20,20 @@ fn write_log(entry: &str) {
 }
 
 // 模块加载时即注册 hook 并写入初始化日志
-ai_core::set_log_hook(|source, _category, kind, conf| {
-    let entry = format!("AI {} kind={} conf={:.2}", source, kind, conf);
-    write_log(&entry);
+static INIT: LazyLock<()> = LazyLock::new(|| {
+    ai_core::set_log_hook(|source, _category, kind, conf| {
+        let entry = format!("AI {} kind={} conf={:.2}", source, kind, conf);
+        write_log(&entry);
+    });
+    write_log("native addon loaded");
 });
-write_log("native addon loaded");
 
-static SESSION: std::sync::LazyLock<Mutex<Option<OnnxSession>>> =
-    std::sync::LazyLock::new(|| {
+fn ensure_init() {
+    LazyLock::force(&INIT);
+}
+
+static SESSION: LazyLock<Mutex<Option<OnnxSession>>> =
+    LazyLock::new(|| {
         let mut session = OnnxSession::new();
         for dir in &["models", "../models", "../../models"] {
             if std::path::Path::new(dir).join("sketch_classify.onnx").exists() {
@@ -56,6 +62,7 @@ pub struct JsSmoothResult {
 
 #[napi]
 pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
+    ensure_init();
     let pts: Vec<Point> = points.iter().map(|p| Point { x: p.x, y: p.y }).collect();
 
     let guard = SESSION.lock().unwrap();
@@ -89,5 +96,6 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
 
 #[napi]
 pub fn log_file_path() -> String {
+    ensure_init();
     LOG_PATH.to_string_lossy().to_string()
 }

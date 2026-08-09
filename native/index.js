@@ -53,3 +53,7 @@ function loadBinding() {
 loadBinding()
 
 module.exports.beautifyStroke = nativeBinding.beautifyStroke
+module.exports.logFilePath = nativeBinding.logFilePath
+
+// 模块加载时立即触发日志初始化（写入 "native addon loaded" 并创建日志文件）
+nativeBinding.logFilePath()
