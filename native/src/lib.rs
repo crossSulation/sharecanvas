@@ -77,6 +77,9 @@ pub struct JsSmoothResult {
 #[napi]
 pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
     ensure_init();
+    if points.is_empty() {
+        return JsSmoothResult { points: vec![], detected_shape: None, onnx_used: false };
+    }
     let pts: Vec<Point> = points.iter().map(|p| Point { x: p.x, y: p.y }).collect();
 
     let guard = SESSION.lock().unwrap();

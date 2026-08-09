@@ -91,6 +91,9 @@ struct AiStatus {
 
 #[tauri::command]
 fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
+    if points.is_empty() {
+        return SmoothResult { points: vec![], detected_shape: None };
+    }
     let session = get_session().lock().unwrap();
 
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
