@@ -84,9 +84,9 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_diamond(points, bbox) { return Some(s); }
     if let Some(s) = try_rect(points, bbox) { return Some(s); }
     if let Some(s) = try_ellipse(points, bbox) { return Some(s); }
+    if let Some(s) = try_trapezoid(points, bbox) { return Some(s); }
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
-    if let Some(s) = try_trapezoid(points, bbox) { return Some(s); }
     if let Some(s) = try_star(points, bbox) { return Some(s); }
     if let Some(s) = try_linear(points, bbox) { return Some(s); }
     if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
@@ -396,7 +396,7 @@ fn eval_trapezoid(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
                 let t_clamped = t.max(0.0).min(1.0);
                 let px = ax + t_clamped * dx;
                 let py = ay + t_clamped * dy;
-                if ((p.x - px).powi(2) + (p.y - py).powi(2)).sqrt() < w * 0.18 {
+                if ((p.x - px).powi(2) + (p.y - py).powi(2)).sqrt() < w * 0.12 {
                     on_edge += 1;
                     break;
                 }

@@ -102,6 +102,11 @@ export function detectShape(points: Pt[]): DetectedShape | null {
 
   const aspectRatio = w / Math.max(h, 1)
 
+  const diamondConf = evalDiamond(points, bbox)
+  if (diamondConf > 0.65 && aspectRatio > 0.4 && aspectRatio < 2.5) {
+    return { kind: 'diamond', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: diamondConf }
+  }
+
   const rectConf = evalRect(points, bbox)
   if (rectConf > 0.7 && aspectRatio > 0.3 && aspectRatio < 3) {
     return { kind: 'rect', ...bbox, confidence: rectConf }
@@ -112,9 +117,9 @@ export function detectShape(points: Pt[]): DetectedShape | null {
     return { kind: 'ellipse', ...bbox, confidence: circConf }
   }
 
-  const diamondConf = evalDiamond(points, bbox)
-  if (diamondConf > 0.65 && aspectRatio > 0.4 && aspectRatio < 2.5) {
-    return { kind: 'diamond', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: diamondConf }
+  const trapConf = evalTrapezoid(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
+  if (trapConf > 0.5 && aspectRatio > 0.4 && aspectRatio < 3.5) {
+    return { kind: 'trapezoid', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: trapConf }
   }
 
   const paraConf = evalParallelogram(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
@@ -125,11 +130,6 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   const hexConf = evalHexagon(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
   if (hexConf > 0.55 && aspectRatio > 0.5 && aspectRatio < 2.0) {
     return { kind: 'hexagon', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: hexConf }
-  }
-
-  const trapConf = evalTrapezoid(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
-  if (trapConf > 0.5 && aspectRatio > 0.4 && aspectRatio < 3.5) {
-    return { kind: 'trapezoid', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: trapConf }
   }
 
   const linConf = evalLinear(points)
@@ -343,7 +343,7 @@ function evalTrapezoid(points: Pt[], bbox: { x0: number; y0: number; x1: number;
         let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2
         t = Math.max(0, Math.min(1, t))
         const px = a.x + t * dx, py = a.y + t * dy
-        if (Math.hypot(p.x - px, p.y - py) < w * 0.18) { onEdge++; break }
+        if (Math.hypot(p.x - px, p.y - py) < w * 0.12) { onEdge++; break }
       }
     }
     const conf = onEdge / points.length
