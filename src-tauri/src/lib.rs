@@ -3,7 +3,46 @@ use serde::Serialize;
 use std::sync::{Mutex, OnceLock};
 use std::path::PathBuf;
 
+static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
 static AI_SESSION: OnceLock<Mutex<OnnxSession>> = OnceLock::new();
+
+fn log_dir() -> PathBuf {
+    #[cfg(target_os = "android")]
+    {
+        std::env::var("EXTERNAL_STORAGE")
+            .ok()
+            .map(|p| PathBuf::from(p).join("sharecanvas"))
+            .or_else(|| {
+                std::env::var("HOME").ok().map(|p| PathBuf::from(p).join(".sharecanvas"))
+            })
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        dirs::document_dir()
+            .or_else(dirs::home_dir)
+            .map(|p| p.join(".sharecanvas"))
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+}
+
+fn write_log(entry: &str) {
+    let path = match LOG_FILE.get() {
+        Some(p) => p.clone(),
+        None => return,
+    };
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let line = format!("[{}] {}\n", timestamp, entry);
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let _ = std::io::Write::write_all(&mut f, line.as_bytes());
+    }
+}
+
+pub fn log_ai(source: &str, kind: &str, conf: f64) {
+    let entry = format!("AI {} kind={} conf={:.3}", source, kind, conf);
+    log::info!("{}", entry);
+    write_log(&entry);
+}
 
 fn get_session() -> &'static Mutex<OnnxSession> {
     AI_SESSION.get_or_init(|| {
@@ -46,18 +85,28 @@ fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
         match session.classify_shape(&points) {
             Ok(Some(shape)) => {
-                // ONNX classified — use its bbox, keep original points
+                let entry = format!("AI onnx kind={} conf={:.3}", shape.kind, shape.confidence);
+                log::info!("{}", entry);
+                write_log(&entry);
                 (session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2)), Some(shape))
             }
             _ => {
-                // ONNX uncertain — fall back to pure algorithm
                 let s = session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2));
-                (s.clone(), detect_shape(&s))
+                let d = detect_shape(&s);
+                if let Some(ref shape) = d {
+                    let entry = format!("AI pure(onnx-fallback) kind={} conf={:.3}", shape.kind, shape.confidence);
+                    write_log(&entry);
+                }
+                (s.clone(), d)
             }
         }
     } else {
         let s = smooth_points(&points, 2);
         let d = detect_shape(&s);
+        if let Some(ref shape) = d {
+            let entry = format!("AI pure kind={} conf={:.3}", shape.kind, shape.confidence);
+            write_log(&entry);
+        }
         (s, d)
     };
 
@@ -78,12 +127,21 @@ fn is_mobile() -> bool {
     cfg!(mobile)
 }
 
+#[tauri::command]
+fn log_file_path() -> String {
+    LOG_FILE.get().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile])
+    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile, log_file_path])
     .setup(|app| {
+      let log_dir_path = log_dir();
+      std::fs::create_dir_all(&log_dir_path).ok();
+      let log_path = log_dir_path.join("sharecanvas.log");
+      LOG_FILE.set(log_path).ok();
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()

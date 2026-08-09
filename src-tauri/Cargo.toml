@@ -27,3 +27,5 @@ tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
 tauri-plugin-shell = "2"
 ai-core = { path = "../crates/ai-core" }
+chrono = "0.4"
+dirs = "6"
