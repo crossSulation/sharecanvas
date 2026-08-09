@@ -23,6 +23,7 @@ let nativeAI = null;
     const req = createRequire(import.meta.url)
     nativeAI = req(join(ROOT, 'native', 'index.js'))
     console.log('[ai] Rust native addon loaded')
+    if (nativeAI.logFilePath) console.log('[ai] log file:', nativeAI.logFilePath())
   } catch {
     try {
       const { platform, arch } = process

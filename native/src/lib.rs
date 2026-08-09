@@ -19,7 +19,6 @@ fn write_log(entry: &str) {
     }
 }
 
-// 模块加载时即注册 hook 并写入初始化日志
 static INIT: LazyLock<()> = LazyLock::new(|| {
     ai_core::set_log_hook(|source, _category, kind, conf| {
         let entry = format!("AI {} kind={} conf={:.2}", source, kind, conf);
