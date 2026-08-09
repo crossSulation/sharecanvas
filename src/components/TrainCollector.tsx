@@ -137,25 +137,19 @@ export default function TrainCollector() {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isTauri = !!(window as any).__TAURI_INTERNALS__
-      if (isTauri) {
-        const { invoke } = await import('@tauri-apps/api/core')
-        const msg = await invoke<string>('save_training_samples', { samples })
-        flash(`已保存到设备：${msg}`)
+      // Tauri WebView 中 fetch 相对路径会解析到 tauri.localhost
+      // 用页面实际加载的 URL（Vite 开发服务器地址）构建请求
+      const base = isTauri ? new URL(window.location.href).origin : location.origin
+      const res = await fetch(`${base}/api/train/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ samples }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        flash(`已提交 ${data.count} 条样本 → ${data.dir}`)
       } else {
-        // Tauri WebView 中 fetch 相对路径会被解析到 tauri.localhost
-        // 需要用完整 URL 走 Vite proxy 到开发机 Node.js 后端
-        const base = location.origin || 'http://localhost:5173'
-        const res = await fetch(`${base}/api/train/submit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ samples }),
-        })
-        if (res.ok) {
-          const data = await res.json()
-          flash(`已提交 ${data.count} 条样本 → ${data.dir}`)
-        } else {
-          flash('提交失败')
-        }
+        flash('提交失败')
       }
       setSamples([])
     } catch (e) {
