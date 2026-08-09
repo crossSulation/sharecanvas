@@ -94,7 +94,7 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   if (lineConf > 0.85) {
     const angle = Math.atan2(last.y - first.y, last.x - first.x) * (180 / Math.PI)
     const dist = Math.hypot(last.x - first.x, last.y - first.y)
-    if (angle > -30 && angle < 30 && dist > 30) {
+    if (Math.abs(angle) < 15 && dist > 80) {
       return { kind: 'arrow', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
     }
     return { kind: 'line', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }

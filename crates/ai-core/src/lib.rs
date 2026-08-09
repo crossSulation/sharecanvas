@@ -70,7 +70,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if line_conf > 0.85 {
         let angle = (last.y - first.y).atan2(last.x - first.x).to_degrees();
         let dist = ((last.x - first.x).powi(2) + (last.y - first.y).powi(2)).sqrt();
-        let kind = if angle > -30.0 && angle < 30.0 && dist > 30.0 { "arrow" } else { "line" };
+        let kind = if angle.abs() < 15.0 && dist > 80.0 { "arrow" } else { "line" };
         log_decision("pure","line/arrow", kind, line_conf);
         return Some(DetectedShape {
             kind: kind.into(),
