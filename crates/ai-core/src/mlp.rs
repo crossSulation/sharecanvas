@@ -137,3 +137,87 @@ impl MlWeights {
         (max_idx, max_val)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Point;
+
+    fn make_line() -> Vec<Point> {
+        (0..50).map(|i| Point { x: i as f64 * 2.0, y: 100.0 }).collect()
+    }
+
+    fn make_rect() -> Vec<Point> {
+        let mut pts = Vec::new();
+        for i in 0..=25 { pts.push(Point { x: 50.0 + i as f64 * 4.0, y: 50.0 }); }
+        for i in 0..=25 { pts.push(Point { x: 150.0, y: 50.0 + i as f64 * 4.0 }); }
+        for i in 0..=25 { pts.push(Point { x: 150.0 - i as f64 * 4.0, y: 150.0 }); }
+        for i in 0..=25 { pts.push(Point { x: 50.0, y: 150.0 - i as f64 * 4.0 }); }
+        pts
+    }
+
+    fn make_circle() -> Vec<Point> {
+        (0..100).map(|i| {
+            let a = std::f64::consts::PI * 2.0 * i as f64 / 100.0;
+            Point { x: 100.0 + 40.0 * a.cos(), y: 100.0 + 40.0 * a.sin() }
+        }).collect()
+    }
+
+    fn make_triangle() -> Vec<Point> {
+        let mut pts = Vec::new();
+        for i in 0..=33 { pts.push(Point { x: 100.0 - 50.0 + i as f64 * 100.0 / 33.0, y: 100.0 + 40.0 * (i as f64 / 33.0) }); }
+        pts
+    }
+
+    fn make_trapezoid() -> Vec<Point> {
+        let mut pts = Vec::new();
+        let cx = 200.0; let cy = 200.0; let w = 100.0; let h = 80.0; let tw = 60.0;
+        for i in 0..=20 { pts.push(Point { x: cx - tw / 2.0 + i as f64 * tw / 20.0, y: cy - h / 2.0 }); }
+        for i in 0..=20 { pts.push(Point { x: cx + w / 2.0, y: cy - h / 2.0 + i as f64 * h / 20.0 }); }
+        for i in (0..=20).rev() { pts.push(Point { x: cx - w / 2.0 + i as f64 * w / 20.0, y: cy + h / 2.0 }); }
+        for i in (0..=20).rev() { pts.push(Point { x: cx - w / 2.0, y: cy + h / 2.0 - i as f64 * h / 20.0 }); }
+        pts
+    }
+
+    #[test]
+    fn test_bitmap_line_has_pixels() {
+        let bm = points_to_bitmap(&make_line());
+        let active = bm.iter().filter(|&&v| v > 0.0).count();
+        assert!(active > 10, "line should produce {active} active pixels");
+    }
+
+    #[test]
+    fn test_bitmap_rect_has_pixels() {
+        let bm = points_to_bitmap(&make_rect());
+        let active = bm.iter().filter(|&&v| v > 0.0).count();
+        assert!(active > 40, "rect should have > 40 active pixels, got {active}");
+    }
+
+    #[test]
+    fn test_bitmap_empty_all_zero() {
+        let bm = points_to_bitmap(&[]);
+        assert_eq!(bm.iter().sum::<f32>(), 0.0);
+    }
+
+    #[test]
+    fn test_bitmap_single_point_empty() {
+        let bm = points_to_bitmap(&[Point { x: 5.0, y: 5.0 }]);
+        assert_eq!(bm.iter().sum::<f32>(), 0.0);
+    }
+
+    #[test]
+    fn test_model_loads_and_predicts() {
+        let path = std::path::Path::new("models/sketch_classify.bin");
+        if !path.exists() {
+            eprintln!("skipping: model file not found");
+            return;
+        }
+        let model = MlWeights::load(path).expect("should load model");
+        // 只验证模型可以完成推理，不验证结果（结果依赖训练数据质量）
+        let (_idx, _conf) = model.predict(&make_line());
+        let (_idx, _conf) = model.predict(&make_rect());
+        let (_idx, _conf) = model.predict(&make_circle());
+        let (_idx, _conf) = model.predict(&make_triangle());
+        let (_idx, _conf) = model.predict(&make_trapezoid());
+    }
+}
