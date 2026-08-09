@@ -16,16 +16,24 @@ type BackendName = 'tauri' | 'native-server' | 'js-fallback'
 
 export async function showLogPath() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (!(window as any).__TAURI_INTERNALS__) {
-    console.log('%c[AI] log: %crunning in browser, no file log', 'color:#a1a1aa', 'color:#a1a1aa')
+  const hasTauri = !!(window as any).__TAURI_INTERNALS__
+  if (hasTauri) {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const path = await invoke<string>('log_file_path')
+      console.log('%c[AI] log file (tauri): %c%s', 'color:#a1a1aa', 'color:#3b82f6', path || '(empty — path not set)')
+    } catch (e) {
+      console.log('%c[AI] tauri log path error: %c%s', 'color:#a1a1aa', 'color:#f87171', String(e))
+    }
     return
   }
+
   try {
-    const { invoke } = await import('@tauri-apps/api/core')
-    const path = await invoke<string>('log_file_path')
-    console.log('%c[AI] log file: %c%s', 'color:#a1a1aa', 'color:#3b82f6', path || '(empty — path not set)')
-  } catch (e) {
-    console.log('%c[AI] log file error: %c%s', 'color:#a1a1aa', 'color:#f87171', String(e))
+    const res = await fetch('/api/ai/log-path')
+    const { path } = await res.json()
+    console.log('%c[AI] log file (server): %c%s', 'color:#a1a1aa', 'color:#22c55e', path || '(empty)')
+  } catch {
+    console.log('%c[AI] log: %crunning in browser, no file log', 'color:#a1a1aa', 'color:#a1a1aa')
   }
 }
 

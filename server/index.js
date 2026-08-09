@@ -326,6 +326,12 @@ const server = http.createServer((req, res) => {
     }))
     return
   }
+  if (url.pathname === '/api/ai/log-path' && req.method === 'GET') {
+    const path = nativeAI?.logFilePath ? nativeAI.logFilePath() : ''
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({ path }))
+    return
+  }
   if (url.pathname === '/api/ai/beautify' && req.method === 'POST') {
     if (!nativeAI) {
       res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' })
