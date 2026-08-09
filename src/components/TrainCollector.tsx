@@ -16,12 +16,12 @@ export default function TrainCollector() {
   const [msg, setMsg] = useState('')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawingRef = useRef(false)
-  const pointsRef = useRef<Pt[]>([])
-  const drawnRef = useRef(false)
+  const strokesRef = useRef<Pt[][]>([])       // 已完成的所有笔画
+  const activeRef = useRef<Pt[]>([])           // 当前正在画的笔画
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2000) }
 
-  const drawCanvas = useCallback(() => {
+  const drawAll = useCallback(() => {
     const c = canvasRef.current
     if (!c) return
     const ctx = c.getContext('2d')
@@ -33,22 +33,16 @@ export default function TrainCollector() {
     ctx.lineWidth = 3
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
-    const pts = pointsRef.current
-    if (pts.length > 1) {
-      ctx.beginPath()
-      ctx.moveTo(pts[0]!.x, pts[0]!.y)
-      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y)
-      ctx.stroke()
+    const allStrokes = [...strokesRef.current, activeRef.current]
+    for (const pts of allStrokes) {
+      if (pts.length > 1) {
+        ctx.beginPath()
+        ctx.moveTo(pts[0]!.x, pts[0]!.y)
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i]!.x, pts[i]!.y)
+        ctx.stroke()
+      }
     }
-    drawnRef.current = true
   }, [])
-
-  useEffect(() => {
-    const c = canvasRef.current
-    if (!c) return
-    drawCanvas()
-    return () => {}
-  }, [drawCanvas])
 
   const toCanvas = (e: React.PointerEvent<HTMLCanvasElement>): Pt => {
     const r = canvasRef.current?.getBoundingClientRect()
@@ -62,14 +56,14 @@ export default function TrainCollector() {
     if (!c) return
     c.setPointerCapture(e.pointerId)
     drawingRef.current = true
-    pointsRef.current = [toCanvas(e)]
-    drawCanvas()
+    activeRef.current = [toCanvas(e)]
+    drawAll()
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!drawingRef.current) return
-    pointsRef.current.push(toCanvas(e))
-    const pts = pointsRef.current
+    activeRef.current.push(toCanvas(e))
+    const pts = activeRef.current
     if (pts.length > 1) {
       const ctx = canvasRef.current?.getContext('2d')
       if (!ctx) return
@@ -84,18 +78,32 @@ export default function TrainCollector() {
   }
 
   const onPointerUp = () => {
+    if (drawingRef.current && activeRef.current.length >= 2) {
+      strokesRef.current.push([...activeRef.current])
+    }
+    activeRef.current = []
     drawingRef.current = false
+    drawAll()
+  }
+
+  const handleUndo = () => {
+    if (strokesRef.current.length > 0) {
+      strokesRef.current.pop()
+      drawAll()
+    }
   }
 
   const handleConfirm = () => {
     if (!label.trim()) { flash('请先输入标签'); return }
-    if (pointsRef.current.length < 5) { flash('笔迹太短，请重新绘制'); return }
-    const normalized: Pt[] = pointsRef.current.map((p) => ({
+    const totalPts = strokesRef.current.flat()
+    if (totalPts.length < 5) { flash('笔迹太短，请重新绘制'); return }
+    const normalized: Pt[] = totalPts.map((p) => ({
       x: (p.x / CANVAS_W) * 2 - 1,
       y: (p.y / CANVAS_H) * 2 - 1,
     }))
     setSamples((prev) => [...prev, { label: label.trim(), points: normalized }])
-    pointsRef.current = []
+    strokesRef.current = []
+    activeRef.current = []
     const c = canvasRef.current
     if (c) {
       const ctx = c.getContext('2d')
@@ -127,6 +135,8 @@ export default function TrainCollector() {
 
   const clearSamples = () => setSamples([])
 
+  const strokeCount = strokesRef.current.length + (activeRef.current.length > 0 ? 1 : 0)
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-100 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-zinc-300 bg-white p-5 shadow-lg">
@@ -146,13 +156,24 @@ export default function TrainCollector() {
           ref={canvasRef}
           width={CANVAS_W}
           height={CANVAS_H}
-          className="mb-3 w-full rounded-lg border border-zinc-300 bg-white"
+          className="mb-2 w-full rounded-lg border border-zinc-300 bg-white"
           style={{ touchAction: 'none', height: CANVAS_H }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerUp}
         />
+
+        <div className="mb-3 flex items-center gap-2">
+          <span className="text-[10px] text-zinc-400">笔画数：{strokeCount}</span>
+          <button
+            onClick={handleUndo}
+            disabled={strokesRef.current.length === 0}
+            className="text-[10px] text-zinc-500 hover:text-red-500 disabled:opacity-30"
+          >
+            撤销上笔
+          </button>
+        </div>
 
         <div className="mb-3 flex items-center gap-2">
           <button
@@ -174,7 +195,7 @@ export default function TrainCollector() {
           <div className="text-[10px] text-zinc-400">
             {samples.length > 0
               ? `已收集 ${samples.length} 条（${[...new Set(samples.map((s) => s.label))].join(', ')}）`
-              : '画一笔 → 确定 → 重复'}
+              : '可画多笔合成一个形状'}
           </div>
           {samples.length > 0 && (
             <button
