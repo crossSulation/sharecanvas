@@ -214,7 +214,7 @@ def main():
         else:
             if args.real:
                 print(f"  {label}: QuickDraw not available, using synthetic")
-            synth = gen_synthetic_samples(label, 300)
+            synth = gen_synthetic_samples(label, 2000)
             X_list.append(synth)
             y_list.extend([i] * len(synth))
 
@@ -222,8 +222,8 @@ def main():
     y = np.array(y_list)
     print(f"\nTraining data: {len(X)} samples, {len(set(y))} classes")
 
-    clf = MLPClassifier(hidden_layer_sizes=(128, 64), max_iter=500,
-                         random_state=42, early_stopping=True)
+    clf = MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=800,
+                         random_state=42, early_stopping=True, batch_size=200)
     clf.fit(X, y)
 
     print("Cross-validation (5-fold)...")

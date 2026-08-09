@@ -3,10 +3,11 @@ use std::path::Path;
 use std::io::Read;
 
 pub struct MlWeights {
-    w1: Box<[f32]>, b1: Box<[f32]>,  // hidden1
-    w2: Box<[f32]>, b2: Box<[f32]>,  // hidden2
-    w3: Box<[f32]>, b3: Box<[f32]>,  // output
+    w1: Box<[f32]>, b1: Box<[f32]>,
+    w2: Box<[f32]>, b2: Box<[f32]>,
+    w3: Box<[f32]>, b3: Box<[f32]>,
     h1: usize, h2: usize, num_classes: usize,
+    in_dim: usize,
 }
 
 const MAX_POINTS: usize = 100;
@@ -63,7 +64,8 @@ impl MlWeights {
             w1: w1.into_boxed_slice(), b1: b1.into_boxed_slice(),
             w2: w2.into_boxed_slice(), b2: b2.into_boxed_slice(),
             w3: w3.into_boxed_slice(), b3: b3.into_boxed_slice(),
-            h1: s2[0], h2: s3[0], num_classes: s3[1],
+            h1: s1[1], h2: s2[1], num_classes: s3[1],
+            in_dim: s1[0],
         })
     }
 
@@ -82,7 +84,7 @@ impl MlWeights {
             input[i * 2 + 1] = ((points[i].y - min_y) / scale * 2.0 - 1.0) as f32;
         }
 
-        let in_dim = self.w1.len() / self.h1;
+        let in_dim = self.in_dim;
         let mut h1 = vec![0.0f32; self.h1];
         let mut h2 = vec![0.0f32; self.h2];
         let mut out = vec![0.0f32; self.num_classes];
