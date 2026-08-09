@@ -103,12 +103,6 @@ pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
                 (s.clone(), detect_shape(&s), false)
             }
         }
-            Ok(None) => {
-                write_log("ONNX classify returned None");
-                let s = smooth_points(&pts, 2);
-                (s.clone(), detect_shape(&s), false)
-            }
-        }
     } else {
         let s = smooth_points(&pts, 2);
         (s.clone(), detect_shape(&s), false)
