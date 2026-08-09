@@ -1,5 +1,5 @@
 use ai_core::{smooth_points, detect_shape, Point, onnx::OnnxSession};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::sync::{Mutex, OnceLock};
 use std::path::PathBuf;
 
@@ -146,11 +146,41 @@ fn log_file_path() -> String {
     LOG_FILE.get().map(|p| p.to_string_lossy().to_string()).unwrap_or_default()
 }
 
+#[derive(Serialize, Deserialize)]
+struct TrainSample {
+    label: String,
+    strokes: Vec<Vec<Point>>,
+}
+
+#[tauri::command]
+fn save_training_samples(samples: Vec<TrainSample>) -> Result<String, String> {
+    let dir = log_dir().join("train_data");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut counts = Vec::new();
+    for s in &samples {
+        let file = dir.join(format!("{}.jsonl", s.label));
+        for stroke in &s.strokes {
+            let entry = serde_json::json!({
+                "label": s.label,
+                "strokes": stroke.iter().map(|p| serde_json::json!({"x": p.x, "y": p.y})).collect::<Vec<_>>(),
+                "ts": chrono::Utc::now().timestamp_millis(),
+            });
+            let line = serde_json::to_string(&entry).map_err(|e| e.to_string())? + "\n";
+            std::fs::OpenOptions::new().create(true).append(true).open(&file)
+                .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()))
+                .map_err(|e| e.to_string())?;
+        }
+        counts.push(format!("{}: {} strokes", s.label, s.strokes.len()));
+    }
+    write_log(&format!("saved {} samples to {}", samples.len(), dir.display()));
+    Ok(counts.join(", "))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile, log_file_path])
+    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile, log_file_path, save_training_samples])
     .setup(|app| {
       let log_dir_path = log_dir();
       std::fs::create_dir_all(&log_dir_path).ok();

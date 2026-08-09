@@ -135,20 +135,28 @@ export default function TrainCollector() {
     if (!samples.length) { flash('没有可提交的样本'); return }
     setUploading(true)
     try {
-      const res = await fetch('/api/train/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ samples }),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        flash(`已提交 ${data.count} 条样本 → ${data.dir}`)
-        setSamples([])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isTauri = !!(window as any).__TAURI_INTERNALS__
+      if (isTauri) {
+        const { invoke } = await import('@tauri-apps/api/core')
+        const msg = await invoke<string>('save_training_samples', { samples })
+        flash(`已保存：${msg}`)
       } else {
-        flash('提交失败')
+        const res = await fetch('/api/train/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ samples }),
+        })
+        if (res.ok) {
+          const data = await res.json()
+          flash(`已提交 ${data.count} 条样本 → ${data.dir}`)
+        } else {
+          flash('提交失败')
+        }
       }
+      setSamples([])
     } catch {
-      flash('提交失败：无法连接服务器')
+      flash('提交失败：无法保存')
     }
     setUploading(false)
   }
