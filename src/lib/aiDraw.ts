@@ -63,7 +63,7 @@ export function smoothPoints(points: Pt[], passes = 2): Pt[] {
 }
 
 export interface DetectedShape {
-  kind: 'rect' | 'ellipse' | 'trapezoid' | 'diamond' | 'parallelogram' | 'hexagon' | 'arrow' | 'line' | 'linear' | 'quadratic'
+  kind: 'rect' | 'ellipse' | 'trapezoid' | 'pentagon' | 'hexagon' | 'heptagon' | 'octagon' | 'diamond' | 'parallelogram' | 'arrow' | 'line' | 'linear' | 'quadratic'
   x0: number
   y0: number
   x1: number
@@ -130,6 +130,15 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   const hexConf = evalHexagon(points, { x0: minX, y0: minY, x1: maxX, y1: maxY })
   if (hexConf > 0.55 && aspectRatio > 0.5 && aspectRatio < 2.0) {
     return { kind: 'hexagon', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: hexConf }
+  }
+
+  // 多边形检测：五边形(5)/七边形(7)/八边形(8)
+  for (const sides of [5, 7, 8]) {
+    const ngonConf = evalNgon(points, { x0: minX, y0: minY, x1: maxX, y1: maxY }, sides)
+    if (ngonConf > 0.55 && aspectRatio > 0.5 && aspectRatio < 2.0) {
+      const kind = sides === 5 ? 'pentagon' : sides === 7 ? 'heptagon' : 'octagon'
+      return { kind, x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: ngonConf }
+    }
   }
 
   const linConf = evalLinear(points)
@@ -350,4 +359,23 @@ function evalTrapezoid(points: Pt[], bbox: { x0: number; y0: number; x1: number;
     if (conf > best) best = conf
   }
   return best
+}
+
+function evalNgon(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }, sides: number): number {
+  const cx = (bbox.x0 + bbox.x1) / 2
+  const cy = (bbox.y0 + bbox.y1) / 2
+  const r = Math.max(bbox.x1 - bbox.x0, bbox.y1 - bbox.y0) / 2
+  if (r < 10) return 0
+  let sumSq = 0
+  for (const p of points) {
+    const angle = Math.atan2(p.y - cy, p.x - cx)
+    const sector = (angle + Math.PI) / (Math.PI * 2) * sides
+    const idx = Math.round(sector) % sides
+    const cornerAngle = idx * 2 * Math.PI / sides - Math.PI / sides
+    const vx = cx + r * Math.cos(cornerAngle)
+    const vy = cy + r * Math.sin(cornerAngle)
+    sumSq += (p.x - vx) ** 2 + (p.y - vy) ** 2
+  }
+  const rms = Math.sqrt(sumSq / points.length)
+  return Math.max(0, 1 - rms / (r * 0.4))
 }

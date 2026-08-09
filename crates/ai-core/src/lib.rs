@@ -88,6 +88,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_parallelogram(points, bbox) { return Some(s); }
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
     if let Some(s) = try_star(points, bbox) { return Some(s); }
+    if let Some(s) = try_polygon(points, bbox) { return Some(s); }
     if let Some(s) = try_linear(points, bbox) { return Some(s); }
     if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
 
@@ -457,6 +458,51 @@ fn try_star(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShap
             confidence: conf,
             func_params: None,
         });
+    }
+    None
+}
+
+fn eval_ngon(points: &[Point], bbox: (f64, f64, f64, f64), sides: usize) -> f64 {
+    let cx = (bbox.0 + bbox.2) / 2.0;
+    let cy = (bbox.1 + bbox.3) / 2.0;
+    let r = (bbox.2 - bbox.0).max(bbox.3 - bbox.1) / 2.0;
+    if r < 10.0 { return 0.0; }
+    let mut sum_sq = 0.0f64;
+    for p in points {
+        let angle = (p.y - cy).atan2(p.x - cx);
+        let sector = (angle + std::f64::consts::PI) / (std::f64::consts::PI * 2.0) * sides as f64;
+        let idx = sector.round() as usize % sides;
+        let corner_angle = (idx as f64) * 2.0 * std::f64::consts::PI / sides as f64 - std::f64::consts::PI / sides as f64;
+        let vx = cx + r * corner_angle.cos();
+        let vy = cy + r * corner_angle.sin();
+        sum_sq += (p.x - vx).powi(2) + (p.y - vy).powi(2);
+    }
+    let rms = (sum_sq / points.len() as f64).sqrt();
+    (1.0 - rms / (r * 0.40)).max(0.0)
+}
+
+fn try_polygon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {
+    let w = bbox.2 - bbox.0;
+    let h = bbox.3 - bbox.1;
+    let aspect = w / h.max(1.0);
+    // 分别尝试 pentagon(5), heptagon(7), octagon(8)，取最佳
+    for sides in [5usize, 7, 8] {
+        let conf = eval_ngon(points, bbox, sides);
+        if conf > 0.55 && aspect > 0.5 && aspect < 2.0 {
+            let kind = match sides {
+                5 => "pentagon",
+                7 => "heptagon",
+                8 => "octagon",
+                _ => "polygon",
+            };
+            log_decision("pure","polygon", kind, conf);
+            return Some(DetectedShape {
+                kind: kind.into(),
+                x0: bbox.0, y0: bbox.1, x1: bbox.2, y1: bbox.3,
+                confidence: conf,
+                func_params: None,
+            });
+        }
     }
     None
 }
