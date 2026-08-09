@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Pt } from '../types'
 
-const CANVAS_W = 280
-const CANVAS_H = 280
+const CANVAS_W = 400
+const CANVAS_H = 400
 
 interface Sample {
   label: string
@@ -156,7 +156,7 @@ export default function TrainCollector() {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-100 p-4">
-      <div className="w-full max-w-sm rounded-2xl border border-zinc-300 bg-white p-5 shadow-lg">
+      <div className="w-full max-w-md rounded-2xl border border-zinc-300 bg-white p-5 shadow-lg">
         <h2 className="mb-3 text-sm font-bold text-zinc-900">训练样本收集</h2>
 
         <div className="mb-3 flex items-center gap-2">
