@@ -16,8 +16,9 @@ export default function TrainCollector() {
   const [msg, setMsg] = useState('')
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const drawingRef = useRef(false)
-  const strokesRef = useRef<Pt[][]>([])       // 已完成的所有笔画
-  const activeRef = useRef<Pt[]>([])           // 当前正在画的笔画
+  const strokesRef = useRef<Pt[][]>([])
+  const activeRef = useRef<Pt[]>([])
+  const [strokeCount, setStrokeCount] = useState(0)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2000) }
 
@@ -93,6 +94,7 @@ export default function TrainCollector() {
   const onPointerUp = () => {
     if (drawingRef.current && activeRef.current.length >= 2) {
       strokesRef.current.push([...activeRef.current])
+      setStrokeCount((c) => c + 1)
     }
     activeRef.current = []
     drawingRef.current = false
@@ -102,6 +104,7 @@ export default function TrainCollector() {
   const handleUndo = () => {
     if (strokesRef.current.length > 0) {
       strokesRef.current.pop()
+      setStrokeCount((c) => c - 1)
       drawAll()
     }
   }
@@ -119,6 +122,7 @@ export default function TrainCollector() {
     setSamples((prev) => [...prev, { label: label.trim(), strokes: normalized }])
     strokesRef.current = []
     activeRef.current = []
+    setStrokeCount(0)
     const c = canvasRef.current
     if (c) {
       const ctx = c.getContext('2d')
@@ -183,7 +187,7 @@ export default function TrainCollector() {
           <span className="text-[10px] text-zinc-400">笔画数：{strokeCount}</span>
           <button
             onClick={handleUndo}
-            disabled={strokesRef.current.length === 0}
+            disabled={strokeCount === 0}
             className="text-[10px] text-zinc-500 hover:text-red-500 disabled:opacity-30"
           >
             撤销上笔
