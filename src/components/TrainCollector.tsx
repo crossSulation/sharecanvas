@@ -140,9 +140,12 @@ export default function TrainCollector() {
       if (isTauri) {
         const { invoke } = await import('@tauri-apps/api/core')
         const msg = await invoke<string>('save_training_samples', { samples })
-        flash(`已保存：${msg}`)
+        flash(`已保存到设备：${msg}`)
       } else {
-        const res = await fetch('/api/train/submit', {
+        // Tauri WebView 中 fetch 相对路径会被解析到 tauri.localhost
+        // 需要用完整 URL 走 Vite proxy 到开发机 Node.js 后端
+        const base = location.origin || 'http://localhost:5173'
+        const res = await fetch(`${base}/api/train/submit`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ samples }),
