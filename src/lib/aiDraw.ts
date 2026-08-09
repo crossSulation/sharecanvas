@@ -122,7 +122,7 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   const last = points[points.length - 1]!
 
   const lineConf = evalLine(points, first, last)
-  if (lineConf > 0.85) {
+  if (lineConf > 0.65) {
     const isArrow = hasArrowhead(points, first, last)
     return { kind: isArrow ? 'arrow' : 'line', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
   }

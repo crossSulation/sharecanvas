@@ -106,7 +106,7 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     let last = &points[points.len() - 1];
 
     let line_conf = eval_line(points, first, last);
-    if line_conf > 0.85 {
+    if line_conf > 0.65 {
         let is_arrow = has_arrowhead(points, first, last);
         let kind = if is_arrow { "arrow" } else { "line" };
         log_decision("pure","line/arrow", kind, line_conf);
