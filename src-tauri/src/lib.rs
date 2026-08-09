@@ -9,8 +9,17 @@ static AI_SESSION: OnceLock<Mutex<OnnxSession>> = OnceLock::new();
 fn log_dir() -> PathBuf {
     #[cfg(target_os = "android")]
     {
-        // Android 外部存储需要权限，用 app 内部目录
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        // 逐级尝试可写目录
+        for candidate in &[
+            "/data/local/tmp/sharecanvas",
+            "/data/local/tmp",
+        ] {
+            let p = PathBuf::from(candidate);
+            if let Ok(()) = std::fs::create_dir_all(&p) {
+                return p;
+            }
+        }
+        std::env::temp_dir()
     }
     #[cfg(not(target_os = "android"))]
     {
