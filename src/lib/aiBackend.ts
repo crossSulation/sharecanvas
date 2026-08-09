@@ -145,55 +145,109 @@ export async function beautifySelected(): Promise<number> {
   const backend = resolved?.backend ?? null
   const pathLabel = resolved?.name ?? 'js-fallback'
 
+  // 收集所有选中笔画的点，按笔画顺序拼接
+  const allPts: Pt[] = []
+  const firstStroke = s.doc.strokes.find((st) => st.id === strokeIds[0])
+  const refColor = firstStroke?.color ?? '#18181b'
+  const refSize = firstStroke?.size ?? 4
+  const refLayer = firstStroke?.layer
+  for (const id of strokeIds) {
+    const st = s.doc.strokes.find((x) => x.id === id)
+    if (!st || st.points.length < 2) continue
+    const pts = extractPoints(st.points)
+    for (const p of pts) allPts.push(p)
+  }
+  if (allPts.length < 4) {
+    // 点太少，逐个平滑即可
+    for (const id of strokeIds) {
+      const st = s.doc.strokes.find((x) => x.id === id)
+      if (!st || st.points.length < 3) continue
+      const pts = extractPoints(st.points)
+      if (pts.length < 3) continue
+      yUpdateStrokePoints(id, smoothPoints(pts, 2))
+    }
+    return strokeIds.length
+  }
+
   console.log(
-    `%c[beautify] %cpath=%c${pathLabel} %cstrokes=%c${strokeIds.length}`,
-    'color:#8b5cf6;font-weight:bold', '', 'color:#3b82f6', '', 'color:#18181b;font-weight:bold',
+    `%c[beautify] %cpath=%c${pathLabel} %cstrokes=%c${strokeIds.length} %crefined into %c${allPts.length} points`,
+    'color:#8b5cf6;font-weight:bold', '', 'color:#3b82f6', '', 'color:#18181b;font-weight:bold', '', 'color:#18181b',
   )
 
+  const t1 = performance.now()
   let smoothedCount = 0
   let shapeCount = 0
 
-  for (const id of strokeIds) {
-    const st = s.doc.strokes.find((x) => x.id === id)
-    if (!st || st.points.length < 3) continue
+  if (backend) {
+    const result = await backend.beautify_stroke({ points: allPts })
+    const smoothed = result.points as Pt[]
+    const detected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
 
-    const pts = extractPoints(st.points)
-    if (pts.length < 3) continue
-
-    const t1 = performance.now()
-
-    if (backend) {
-      const result = await backend.beautify_stroke({ points: pts })
-      const smoothed = result.points as Pt[]
-      const detected = result.detectedShape
-
-      if (detected && detected.confidence > 0.85 && pts.length > 10) {
-        const result = handleDetected(id, detected, st.color, st.size, st.layer)
-        console.log(
-          `  %c→ ${result} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
-          result === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
-        )
-        if (result === 'func') smoothedCount++
-        else shapeCount++
-      } else {
-        yUpdateStrokePoints(id, smoothed)
-        smoothedCount++
-      }
+    if (detected && detected.confidence > 0.85 && allPts.length > 10) {
+      const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
+      // 删除其他笔画
+      if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
+      console.log(
+        `  %c→ ${outcome} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+        outcome === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+      )
+      if (outcome === 'func') smoothedCount++
+      else shapeCount++
     } else {
-      const smoothed = smoothPoints(pts, 2)
-      const detected = detectShape(smoothed)
-
-      if (detected && detected.confidence > 0.85 && pts.length > 10) {
-        const result = handleDetected(id, detected, st.color, st.size, st.layer)
-        console.log(
-          `  %c→ ${result} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
-          result === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
-        )
-        if (result === 'func') smoothedCount++
-        else shapeCount++
-      } else {
-        yUpdateStrokePoints(id, smoothed)
+      // 未识别为形状 → 平滑合并点，更新到第一笔，删除其余
+      // 按原始笔画顺序分配平滑点
+      let offset = 0
+      for (const id of strokeIds) {
+        const st = s.doc.strokes.find((x) => x.id === id)
+        if (!st) continue
+        const origLen = st.points.length
+        if (origLen < 2) continue
+        // 平滑后的对应段
+        const tStart = offset / Math.max(allPts.length - 1, 1)
+        const tEnd = (offset + origLen - 1) / Math.max(allPts.length - 1, 1)
+        const segPts: Pt[] = []
+        const segN = Math.max(origLen, 3)
+        for (let i = 0; i < segN; i++) {
+          const si = Math.round(tStart * (smoothed.length - 1) + i * (tEnd - tStart) * (smoothed.length - 1) / Math.max(segN - 1, 1))
+          if (si >= 0 && si < smoothed.length) segPts.push(smoothed[si]!)
+        }
+        yUpdateStrokePoints(id, segPts.length >= 2 ? segPts : smoothed)
         smoothedCount++
+        offset += origLen
+      }
+    }
+  } else {
+    const smoothed = smoothPoints(allPts, 2)
+    const detected = detectShape(smoothed)
+
+    if (detected && detected.confidence > 0.85 && allPts.length > 10) {
+      const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
+      if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
+      console.log(
+        `  %c→ ${outcome} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
+        outcome === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
+      )
+      if (outcome === 'func') smoothedCount++
+      else shapeCount++
+    } else {
+      // 未识别 → 平滑各段
+      let offset = 0
+      for (const id of strokeIds) {
+        const st = s.doc.strokes.find((x) => x.id === id)
+        if (!st) continue
+        const origLen = st.points.length
+        if (origLen < 2) continue
+        const tStart = offset / Math.max(allPts.length - 1, 1)
+        const tEnd = (offset + origLen - 1) / Math.max(allPts.length - 1, 1)
+        const segPts: Pt[] = []
+        const segN = Math.max(origLen, 3)
+        for (let i = 0; i < segN; i++) {
+          const si = Math.round(tStart * (smoothed.length - 1) + i * (tEnd - tStart) * (smoothed.length - 1) / Math.max(segN - 1, 1))
+          if (si >= 0 && si < smoothed.length) segPts.push(smoothed[si]!)
+        }
+        yUpdateStrokePoints(id, segPts.length >= 2 ? segPts : smoothed)
+        smoothedCount++
+        offset += origLen
       }
     }
   }
