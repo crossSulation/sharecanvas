@@ -19,16 +19,12 @@ fn write_log(entry: &str) {
     }
 }
 
-static HOOK_INIT: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-fn ensure_log_hook() {
-    HOOK_INIT.get_or_init(|| {
-        ai_core::set_log_hook(|source, _category, kind, conf| {
-            let entry = format!("AI {} kind={} conf={:.2}", source, kind, conf);
-            write_log(&entry);
-        });
-        write_log("native addon loaded");
-    });
-}
+// 模块加载时即注册 hook 并写入初始化日志
+ai_core::set_log_hook(|source, _category, kind, conf| {
+    let entry = format!("AI {} kind={} conf={:.2}", source, kind, conf);
+    write_log(&entry);
+});
+write_log("native addon loaded");
 
 static SESSION: std::sync::LazyLock<Mutex<Option<OnnxSession>>> =
     std::sync::LazyLock::new(|| {
@@ -60,7 +56,6 @@ pub struct JsSmoothResult {
 
 #[napi]
 pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
-    ensure_log_hook();
     let pts: Vec<Point> = points.iter().map(|p| Point { x: p.x, y: p.y }).collect();
 
     let guard = SESSION.lock().unwrap();
