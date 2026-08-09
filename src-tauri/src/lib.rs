@@ -98,14 +98,11 @@ fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
 
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
         match session.classify_shape(&points) {
-            Ok(Some(cnn_shape)) => {
-                let s = smooth_points(&points, 2);
-                let pure = detect_shape(&s);
-                if let Some(ref shape) = pure {
-                    (s, pure)
-                } else {
-                    (s, Some(cnn_shape))
-                }
+            Ok(Some(shape)) => {
+                let entry = format!("AI onnx kind={} conf={:.3}", shape.kind, shape.confidence);
+                log::info!("{}", entry);
+                write_log(&entry);
+                (session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2)), Some(shape))
             }
             _ => {
                 let s = session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2));
