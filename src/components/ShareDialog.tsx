@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { collab } from '../lib/collab'
 import { roomCode } from '../lib/id'
 import { docToSnapshotHash, exportDocFile, importDocFile, jsonToDoc } from '../lib/serialize'
+import { exportDocPNG, exportDocSVG, exportDocPDF } from '../lib/exportImage'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -296,6 +297,20 @@ export default function ShareDialog() {
             <button onClick={() => exportDocFile(doc)}
               className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
               导出 JSON
+            </button>
+            <button onClick={() => exportDocPNG(doc)}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
+              导出 PNG
+            </button>
+            <button onClick={() => exportDocSVG(doc)}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
+              导出 SVG
+            </button>
+            <button
+              onClick={() => exportDocPDF(doc).catch(() => { /* PDF 导出失败时静默忽略 */ })}
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100"
+            >
+              导出 PDF
             </button>
             <button onClick={() => fileRef.current?.click()}
               className="rounded-lg border border-zinc-300 px-3 py-1.5 text-[11px] text-zinc-600 hover:bg-zinc-100">
