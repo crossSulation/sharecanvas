@@ -133,7 +133,9 @@ classify_shape(points)
 | `src/lib/aiDraw.ts` | JS 版 detectShape + evalLinear/evalQuadratic |
 | `src/lib/aiBackend.ts` | 美化入口 + 三端调用分发 + regeneratePoints + handleDetected |
 | `src/lib/exportImage.ts` | 导出 PNG/SVG/PDF + 文档包围盒计算 |
+| `crates/ai-core/examples/recognize_test.rs` | 识别测试工具（读取笔画集合用例，输出各类准确率与混淆） |
 | `scripts/export_models.py` | ONNX 模型导出脚本 |
+| `scripts/preview_training_data.py` | 训练数据联系表预览（按行号标注，便于清理脏样本） |
 | `native/src/lib.rs` | napi-rs 绑定（Node.js 端调用 Rust） |
 | `server/index.js` | Node.js AI 端点 + native addon 加载 |
 | `src-tauri/src/lib.rs` | Tauri AI 命令 |
@@ -142,7 +144,7 @@ classify_shape(points)
 
 #### 识别率提升（当前单形状识别）
 
-现状：13 类中仅 rect（165 条）、trapezoid（116 条）有真实手绘数据；hexagon/octagon 完全没有真实数据，QuickDraw 留出集识别率仅 57.6% / 70.6%，rect 真实手绘约 70%。
+现状（2026-08-10 修复后）：801 例识别测试整体 87.0%（Rust 生产路径）；triangle 已修复（三笔画画法 36% → 100%，QuickDraw 96%）；trapezoid 97.4%；rect 真实手绘约 66%；hexagon/octagon QuickDraw 留出集 ~56% / ~55%，仍最弱且完全没有真实手绘数据。
 
 **数据采集优先级**
 
@@ -193,6 +195,26 @@ classify_shape(points)
 - 风格迁移（style transfer）
 - 文字转图片（text-to-image）
 - ONNX 模型架构升级（2D CNN 替代 MLP，已完成）
+
+---
+
+### 近期改动记录（2026-08-10）
+
+**AI 识别链路（L5）**
+
+- [x] MLP → PyTorch 2D CNN：16→32→32 conv + FC 64，约 33K 参数 / 130.6KB；Rust 手写 conv/maxpool/FC 推理（`cnn.rs`），`.bin` 增加 SCNN 魔数与逐层 shape 校验
+- [x] 数据修复：QuickDraw 与合成数据合并（此前二选一，模型完全没见过细线风格笔迹）；`stroke_to_bitmap` 改为全局包围盒，多笔画图形正确拼合
+- [x] 多笔画端到端：前端 / server / native / Tauri / ai-core 全部改为按 `strokes` 集合提交与渲染，笔画之间不再产生连接线
+- [x] 合成生成器修复：清除 (0,0) 残留点（triangle/hexagon/heptagon/octagon 的内部假线）；三角形顶点随机化（宽/高/偏移）；按角点 40% 概率拆成 2~3 笔；固定随机种子便于复现
+- [x] 新增识别测试工具 `recognize_test.rs`（801 例：真实 rect/trapezoid 全量 + 13 类合成各 40 例），与 Python 推理逐条一致
+- [x] 识别结果：801 例 87.0%；三角形三笔画法 36% → 100%；trapezoid 97.4%；rect ~66%；hexagon/octagon QuickDraw 留出集 ~56% / ~55%（仍最弱，待收集真实数据）
+- [x] 环境：本机安装 rustup 1.97.1（MSVC）+ Python 3.14 + torch 2.13 + Pillow；`npm run ai:test` 可回归
+
+**导出与渲染（L6/L7）**
+
+- [x] L6 导出 PNG/SVG/PDF：`src/lib/exportImage.ts`，图层顺序 / 混合模式 / 橡皮擦打洞与主画布一致；PDF 用 jspdf（动态加载，独立 chunk）
+- [x] L7 视口裁剪：`drawLayerContent` 只渲染可视区元素（笔画/图形/文字/橡皮擦圆圈），worker 与同步光栅化均传入世界坐标可视区
+- [x] 数据标注工具：`scripts/preview_training_data.py` 生成训练数据联系表 PNG（按行号标注，便于人工清理脏样本）
 
 ---
 
