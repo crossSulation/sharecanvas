@@ -376,8 +376,12 @@ const server = http.createServer((req, res) => {
     req.on('data', (chunk) => body += chunk)
     req.on('end', () => {
       try {
-        const { points } = JSON.parse(body)
-        const result = nativeAI.beautifyStroke(points || [])
+        const { strokes, points } = JSON.parse(body)
+        // 新格式传笔画集合；兼容旧的扁平 points（视为单笔画）
+        const payload = Array.isArray(strokes) && strokes.length > 0
+          ? strokes
+          : (Array.isArray(points) && points.length > 0 ? [points] : [])
+        const result = nativeAI.beautifyStroke(payload || [])
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
         res.end(JSON.stringify(result))
       } catch (err) {

@@ -6,7 +6,7 @@ import { nextSeq } from './seq'
 import type { Pt } from '../types'
 
 interface BackendAI {
-  beautify_stroke(args: { points: { x: number; y: number }[] }): Promise<{
+  beautify_stroke(args: { strokes: { x: number; y: number }[][] }): Promise<{
     points: { x: number; y: number }[]
     detectedShape: { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number } | null
   }>
@@ -147,6 +147,7 @@ export async function beautifySelected(): Promise<number> {
 
   // 收集所有选中笔画的点，按笔画顺序拼接
   const allPts: Pt[] = []
+  const strokePts: Pt[][] = []
   const firstStroke = s.doc.strokes.find((st) => st.id === strokeIds[0])
   const refColor = firstStroke?.color ?? '#18181b'
   const refSize = firstStroke?.size ?? 4
@@ -155,6 +156,7 @@ export async function beautifySelected(): Promise<number> {
     const st = s.doc.strokes.find((x) => x.id === id)
     if (!st || st.points.length < 2) continue
     const pts = extractPoints(st.points)
+    strokePts.push(pts)
     for (const p of pts) allPts.push(p)
   }
   if (allPts.length < 4) {
@@ -179,7 +181,7 @@ export async function beautifySelected(): Promise<number> {
   let shapeCount = 0
 
   if (backend) {
-    const result = await backend.beautify_stroke({ points: allPts })
+    const result = await backend.beautify_stroke({ strokes: strokePts })
     const smoothed = result.points as Pt[]
     const detected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
 

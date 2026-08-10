@@ -75,29 +75,36 @@ pub struct JsSmoothResult {
 }
 
 #[napi]
-pub fn beautify_stroke(points: Vec<JsPoint>) -> JsSmoothResult {
+pub fn beautify_stroke(strokes: Vec<Vec<JsPoint>>) -> JsSmoothResult {
     ensure_init();
-    if points.is_empty() {
-        return JsSmoothResult { points: vec![], detected_shape: None, onnx_used: false };
-    }
-    let pts: Vec<Point> = points.iter().map(|p| Point { x: p.x, y: p.y }).collect();
+    let pts: Vec<Vec<Point>> = strokes
+        .iter()
+        .map(|st| st.iter().map(|p| Point { x: p.x, y: p.y }).collect())
+        .collect();
+    let flat: Vec<Point> = pts.iter().flatten().cloned().collect();
 
     let guard = SESSION.lock().unwrap();
     let session = guard.as_ref().unwrap();
 
     let (smoothed, detected, onnx_used) = if session.status() == ModelStatus::Ready {
         match session.classify_shape(&pts) {
-            Ok(Some(cnn_shape)) => (
-                session.smooth_stroke(&pts).unwrap_or_else(|_| smooth_points(&pts, 2)),
-                Some(cnn_shape), true,
+            Ok(Some(shape)) => (
+                session.smooth_stroke(&flat).unwrap_or_else(|_| smooth_points(&flat, 2)),
+                Some(shape), true,
             ),
-            _ => {
-                let s = smooth_points(&pts, 2);
+            Err(e) => {
+                write_log(&format!("ONNX classify error: {}", e));
+                let s = smooth_points(&flat, 2);
+                (s.clone(), detect_shape(&s), false)
+            }
+            Ok(None) => {
+                write_log("ONNX classify returned None");
+                let s = smooth_points(&flat, 2);
                 (s.clone(), detect_shape(&s), false)
             }
         }
     } else {
-        let s = smooth_points(&pts, 2);
+        let s = smooth_points(&flat, 2);
         (s.clone(), detect_shape(&s), false)
     };
 

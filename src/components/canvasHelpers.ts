@@ -1,4 +1,4 @@
-import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints } from "../lib/layerRender"
+import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, type WorldRect } from "../lib/layerRender"
 import { DEFAULT_LAYER_ID } from "../lib/yroom"
 import type { Doc, Pt, Shape, Stroke, TextItem } from "../types"
 
@@ -54,6 +54,14 @@ export function rasterizeLayerSync(
     l && doc.layers.some((x) => x.id === l) ? l : DEFAULT_LAYER_ID
   const halfW = w / 2 / zoom
   const halfH = h / 2 / zoom
+  const left = cam.x - halfW * margin
+  const top = cam.y - halfH * margin
+  const view: WorldRect = {
+    x0: left,
+    y0: top,
+    x1: left + halfW * margin * 2,
+    y1: top + halfH * margin * 2,
+  }
   const cw = Math.max(1, Math.ceil(halfW * margin * 2 * zoom * dpr))
   const ch = Math.max(1, Math.ceil(halfH * margin * 2 * zoom * dpr))
   const canvas = existing?.canvas ?? document.createElement('canvas')
@@ -64,9 +72,9 @@ export function rasterizeLayerSync(
   const octx = canvas.getContext('2d')
   if (octx) {
     octx.setTransform(zoom * dpr, 0, 0, zoom * dpr, 0, 0)
-    octx.translate(-(cam.x - halfW * margin), -(cam.y - halfH * margin))
-    octx.clearRect(cam.x - halfW * margin, cam.y - halfH * margin, halfW * margin * 2, halfH * margin * 2)
-    drawLayerContent(octx, doc, layerId, layerOpacity, layerOf)
+    octx.translate(-left, -top)
+    octx.clearRect(left, top, halfW * margin * 2, halfH * margin * 2)
+    drawLayerContent(octx, doc, layerId, layerOpacity, layerOf, view)
   }
   const cache: LayerCache = existing ?? { canvas, zoom: 0, cam: { x: 0, y: 0 }, width: 0, height: 0, ready: false }
   cache.zoom = zoom

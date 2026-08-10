@@ -4,6 +4,50 @@ import type { Doc, Pt, Shape, Stroke, TextItem } from '../types'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
+export interface WorldRect {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+function intersects(a: WorldRect, b: WorldRect): boolean {
+  return a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0
+}
+
+export function strokeBounds(s: Stroke): WorldRect {
+  if (!s.points.length) return { x0: 0, y0: 0, x1: 0, y1: 0 }
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const p of s.points) {
+    if (p.x < x0) x0 = p.x
+    if (p.y < y0) y0 = p.y
+    if (p.x > x1) x1 = p.x
+    if (p.y > y1) y1 = p.y
+  }
+  // perfect-freehand 轮廓会超出点序列；按笔宽放大，避免误裁剪
+  const pad = s.size * 1.5
+  return { x0: x0 - pad, y0: y0 - pad, x1: x1 + pad, y1: y1 + pad }
+}
+
+export function shapeBounds(sh: Shape): WorldRect {
+  // 箭头头部 / 附着图形可能超出 x0..x1，额外加余量
+  const pad = sh.size * 2 + 24
+  return {
+    x0: Math.min(sh.x0, sh.x1) - pad,
+    y0: Math.min(sh.y0, sh.y1) - pad,
+    x1: Math.max(sh.x0, sh.x1) + pad,
+    y1: Math.max(sh.y0, sh.y1) + pad,
+  }
+}
+
+export function textBounds(t: TextItem): WorldRect {
+  const w = t.text.length * t.size * 0.62 + t.size
+  return { x0: t.x - w, y0: t.y - t.size * 1.5, x1: t.x + w, y1: t.y + t.size * 0.5 }
+}
+
 interface BrushPreset {
   sizeScale?: number
   thinning?: number
@@ -323,6 +367,7 @@ export function drawLayerContent(
   layerId: string,
   layerOpacity: number,
   layerOf: (l?: string) => string,
+  view?: WorldRect,
 ): void {
   const holesAfter = (seq: number) => {
     ctx.save()
@@ -330,6 +375,7 @@ export function drawLayerContent(
     ctx.globalAlpha = 1
     for (const c of doc.eraser) {
       if (c.seq <= seq || layerOf(c.layer) !== layerId) continue
+      if (view && !intersects(view, { x0: c.x - c.r, y0: c.y - c.r, x1: c.x + c.r, y1: c.y + c.r })) continue
       ctx.beginPath()
       ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2)
       ctx.fill()
@@ -339,11 +385,13 @@ export function drawLayerContent(
 
   for (const s of doc.strokes) {
     if (layerOf(s.layer) !== layerId) continue
+    if (view && !intersects(view, strokeBounds(s))) continue
     drawStroke(ctx, s, layerOpacity)
     holesAfter(s.seq ?? 0)
   }
   for (const sh of doc.shapes) {
     if (layerOf(sh.layer) !== layerId) continue
+    if (view && !intersects(view, shapeBounds(sh))) continue
     ctx.globalAlpha = layerOpacity
     drawShape(ctx, sh, doc)
     ctx.globalAlpha = 1
@@ -351,7 +399,16 @@ export function drawLayerContent(
   }
   for (const t of doc.texts) {
     if (layerOf(t.layer) !== layerId) continue
+    if (view && !intersects(view, textBounds(t))) continue
     drawText(ctx, t, doc, layerOpacity)
     holesAfter(t.seq ?? 0)
   }
+}
+
+// 笔画轮廓点（SVG 导出用），与 drawStroke 的填充轮廓一致
+export function strokeOutlinePoints(s: Stroke): Pt[] {
+  if (s.points.length === 1) {
+    return [{ x: s.points[0].x, y: s.points[0].y }]
+  }
+  return strokeOutline(s.points, s).map((p) => ({ x: p[0], y: p[1] }))
 }

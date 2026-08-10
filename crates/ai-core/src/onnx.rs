@@ -21,6 +21,9 @@ impl OnnxSession {
 
     pub fn status(&self) -> ModelStatus { self.status }
 
+    /// 从模型路径定位目录并加载同目录下的 `sketch_classify.bin`。
+    /// 注意：传入的路径本身不会被解析（ONNX 暂未接入运行时），
+    /// 它只用于确定父目录，因此传 `.onnx` 或 `.bin` 路径效果相同。
     pub fn load_model(&mut self, model_path: &str) -> Result<(), String> {
         self.status = ModelStatus::Loading;
         let path = std::path::Path::new(model_path);
@@ -49,9 +52,9 @@ impl OnnxSession {
         Ok(crate::smooth_points(points, 2))
     }
 
-    pub fn classify_shape(&self, points: &[Point]) -> Result<Option<DetectedShape>, String> {
+    pub fn classify_shape(&self, strokes: &[Vec<Point>]) -> Result<Option<DetectedShape>, String> {
         let cnn = self.cnn.as_ref().ok_or("CNN model not loaded")?;
-        let (idx, conf) = cnn.predict(points);
+        let (idx, conf) = cnn.predict(strokes);
 
         let labels: [&str; 13] = [
             "ellipse", "rect", "line", "triangle", "arrow",
@@ -61,10 +64,10 @@ impl OnnxSession {
         let kind = labels.get(idx).copied().unwrap_or("rect");
 
         use crate::log_decision;
-        log_decision("mlp", "sketch", kind, conf as f64);
+        log_decision("cnn", "sketch", kind, conf as f64);
 
-        let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
-        let ys: Vec<f64> = points.iter().map(|p| p.y).collect();
+        let xs: Vec<f64> = strokes.iter().flatten().map(|p| p.x).collect();
+        let ys: Vec<f64> = strokes.iter().flatten().map(|p| p.y).collect();
 
         Ok(Some(DetectedShape {
             kind: kind.to_string(),

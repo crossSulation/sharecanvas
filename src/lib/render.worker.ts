@@ -1,4 +1,4 @@
-import { drawLayerContent } from './layerRender'
+import { drawLayerContent, type WorldRect } from './layerRender'
 import type { Doc } from '../types'
 
 interface RasterMessage {
@@ -38,12 +38,18 @@ if (typeof OffscreenCanvas === 'undefined') {
       }
       const left = msg.camera.x - halfW * msg.margin
       const top = msg.camera.y - halfH * msg.margin
+      const view: WorldRect = {
+        x0: left,
+        y0: top,
+        x1: left + halfW * msg.margin * 2,
+        y1: top + halfH * msg.margin * 2,
+      }
       ctx.setTransform(msg.zoom * msg.dpr, 0, 0, msg.zoom * msg.dpr, 0, 0)
       ctx.translate(-left, -top)
       ctx.clearRect(left, top, halfW * msg.margin * 2, halfH * msg.margin * 2)
       const layerOf = (l?: string) =>
         l && msg.doc.layers.some((x) => x.id === l) ? l : msg.defaultLayerId
-      drawLayerContent(ctx, msg.doc, msg.layerId, msg.layerOpacity, layerOf)
+      drawLayerContent(ctx, msg.doc, msg.layerId, msg.layerOpacity, layerOf, view)
       const bitmap = off.transferToImageBitmap()
       workerSelf.postMessage(
         {

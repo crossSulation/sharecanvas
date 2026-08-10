@@ -36,8 +36,8 @@
 - [x] L3: 模板市场（流程图、思维导图、故事板等预置模板）
 - [ ] L4: WebRTC 音视频通话
 - [x] L5: AI 辅助绘图 — 形状检测 + ONNX 模型 + 函数曲线（结构识别规划中，见下方详情）
-- [ ] L6: 导出格式扩展（PNG/SVG/PDF）
-- [ ] L7: 虚拟化渲染（只渲染视口内元素）
+- [x] L6: 导出格式扩展（PNG/SVG/PDF）
+- [x] L7: 虚拟化渲染（只渲染视口内元素）
 - [x] L8: 桌面端应用（Tauri v2 + 移动端）
 
 ---
@@ -110,10 +110,10 @@ classify_shape(points)
 ### ONNX 模型
 
 - 引擎：`tract-onnx`（纯 Rust，无需 Python 运行时）
-- 导出：`scripts/export_models.py` 使用 `uv` 隔离环境 (scikit-learn → ONNX)
+- 导出：`scripts/export_models.py` 使用 `uv` 隔离环境 (PyTorch 2D CNN → ONNX)
 - 缓存：QuickDraw 数据缓存到 `samples/*.npy`，避免重复下载
-- 标签：`SHAPE_LABELS` 10 类 (circle→ellipse, square→rect, line→line, triangle→triangle, arrow→arrow, diamond→diamond, star→star, parallelogram→parallelogram, hexagon→hexagon, trapezoid→trapezoid)
-- 模型大小：~136KB（MLP 200→128→64→10，34K 参数）
+- 标签：`SHAPE_LABELS` 13 类 (circle→ellipse, square→rect, line→line, triangle→triangle, arrow→arrow, diamond→diamond, star→star, parallelogram→parallelogram, hexagon→hexagon, trapezoid→trapezoid, pentagon, heptagon, octagon)
+- 模型大小：~134KB（2D CNN 16→32→32 conv + FC 64，约 33K 参数）
 - 日志：同时写入 logcat 和文件，通过 `set_log_hook` 回调统一输出
 
 ### 日志文件
@@ -132,12 +132,34 @@ classify_shape(points)
 | `crates/ai-core/src/onnx.rs` | ONNX 模型推理 + `SHAPE_LABELS` 映射 |
 | `src/lib/aiDraw.ts` | JS 版 detectShape + evalLinear/evalQuadratic |
 | `src/lib/aiBackend.ts` | 美化入口 + 三端调用分发 + regeneratePoints + handleDetected |
+| `src/lib/exportImage.ts` | 导出 PNG/SVG/PDF + 文档包围盒计算 |
+| `crates/ai-core/examples/recognize_test.rs` | 识别测试工具（读取笔画集合用例，输出各类准确率与混淆） |
 | `scripts/export_models.py` | ONNX 模型导出脚本 |
+| `scripts/preview_training_data.py` | 训练数据联系表预览（按行号标注，便于清理脏样本） |
 | `native/src/lib.rs` | napi-rs 绑定（Node.js 端调用 Rust） |
 | `server/index.js` | Node.js AI 端点 + native addon 加载 |
 | `src-tauri/src/lib.rs` | Tauri AI 命令 |
 
 ### 下一步计划
+
+#### 识别率提升（当前单形状识别）
+
+现状（2026-08-10 修复后）：801 例识别测试整体 87.0%（Rust 生产路径）；triangle 已修复（三笔画画法 36% → 100%，QuickDraw 96%）；trapezoid 97.4%；rect 真实手绘约 66%；hexagon/octagon QuickDraw 留出集 ~56% / ~55%，仍最弱且完全没有真实手绘数据。
+
+**数据采集优先级**
+
+- P0：hexagon、octagon —— 各收集 200+ 条真实手绘（当前最弱，QuickDraw 数据粗糙且互相混淆）
+- P0：复查 rect 标注 —— 手绘矩形常被判为 trapezoid/parallelogram，疑似存在标注与形状不符的脏样本
+- P1：parallelogram、diamond —— 各收集 100~200 条（合成识别率仅 80~87%）
+- P2：其余类合成/QuickDraw 已 95%+，按需补充
+- 目标：每类 200~500 条真实数据即可明显超过合成 + QuickDraw 的效果
+
+**训练侧小杠杆（次要）**
+
+- 真实数据增强：随机平移 / 轻微旋转 / 线宽抖动
+- 合成数据多笔拆分：按角点切分（模拟三角形三笔、矩形两笔等真实画法）
+- 修复合成生成器残留 (0,0) 点导致的多边形内部假线；固定随机种子便于复现
+- 弱类加权 + 适当延长训练轮数
 
 #### 结构识别（表格、流程图、图表）
 
@@ -172,7 +194,27 @@ classify_shape(points)
 
 - 风格迁移（style transfer）
 - 文字转图片（text-to-image）
-- ONNX 模型架构升级（1D CNN 替代 MLP）
+- ONNX 模型架构升级（2D CNN 替代 MLP，已完成）
+
+---
+
+### 近期改动记录（2026-08-10）
+
+**AI 识别链路（L5）**
+
+- [x] MLP → PyTorch 2D CNN：16→32→32 conv + FC 64，约 33K 参数 / 130.6KB；Rust 手写 conv/maxpool/FC 推理（`cnn.rs`），`.bin` 增加 SCNN 魔数与逐层 shape 校验
+- [x] 数据修复：QuickDraw 与合成数据合并（此前二选一，模型完全没见过细线风格笔迹）；`stroke_to_bitmap` 改为全局包围盒，多笔画图形正确拼合
+- [x] 多笔画端到端：前端 / server / native / Tauri / ai-core 全部改为按 `strokes` 集合提交与渲染，笔画之间不再产生连接线
+- [x] 合成生成器修复：清除 (0,0) 残留点（triangle/hexagon/heptagon/octagon 的内部假线）；三角形顶点随机化（宽/高/偏移）；按角点 40% 概率拆成 2~3 笔；固定随机种子便于复现
+- [x] 新增识别测试工具 `recognize_test.rs`（801 例：真实 rect/trapezoid 全量 + 13 类合成各 40 例），与 Python 推理逐条一致
+- [x] 识别结果：801 例 87.0%；三角形三笔画法 36% → 100%；trapezoid 97.4%；rect ~66%；hexagon/octagon QuickDraw 留出集 ~56% / ~55%（仍最弱，待收集真实数据）
+- [x] 环境：本机安装 rustup 1.97.1（MSVC）+ Python 3.14 + torch 2.13 + Pillow；`npm run ai:test` 可回归
+
+**导出与渲染（L6/L7）**
+
+- [x] L6 导出 PNG/SVG/PDF：`src/lib/exportImage.ts`，图层顺序 / 混合模式 / 橡皮擦打洞与主画布一致；PDF 用 jspdf（动态加载，独立 chunk）
+- [x] L7 视口裁剪：`drawLayerContent` 只渲染可视区元素（笔画/图形/文字/橡皮擦圆圈），worker 与同步光栅化均传入世界坐标可视区
+- [x] 数据标注工具：`scripts/preview_training_data.py` 生成训练数据联系表 PNG（按行号标注，便于人工清理脏样本）
 
 ---
 
