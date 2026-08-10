@@ -21,6 +21,9 @@ impl OnnxSession {
 
     pub fn status(&self) -> ModelStatus { self.status }
 
+    /// 从模型路径定位目录并加载同目录下的 `sketch_classify.bin`。
+    /// 注意：传入的路径本身不会被解析（ONNX 暂未接入运行时），
+    /// 它只用于确定父目录，因此传 `.onnx` 或 `.bin` 路径效果相同。
     pub fn load_model(&mut self, model_path: &str) -> Result<(), String> {
         self.status = ModelStatus::Loading;
         let path = std::path::Path::new(model_path);

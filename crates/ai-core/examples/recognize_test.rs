@@ -8,7 +8,8 @@ fn main() -> Result<(), String> {
     let cases = std::env::args().nth(1).ok_or("usage: recognize_test <cases.txt>")?;
 
     let mut session = OnnxSession::new();
-    session.load_model("../../models/sketch_classify.onnx")?;
+    // load_model 只取父目录定位，实际加载同目录下的 sketch_classify.bin
+    session.load_model("../../models/sketch_classify.bin")?;
 
     let f = File::open(&cases).map_err(|e| e.to_string())?;
     let mut total = 0usize;
