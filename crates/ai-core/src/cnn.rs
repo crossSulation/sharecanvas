@@ -19,47 +19,51 @@ pub struct CnnWeights {
     fc2_w: Box<[f32]>, fc2_b: Box<[f32]>,
 }
 
-/// 渲染笔画到 28×28 位图，返回 784 维归一化像素数组（行优先，y*28+x）
-fn points_to_bitmap(points: &[Point]) -> Vec<f32> {
+/// 将笔画集合渲染到 28×28 位图，返回 784 维归一化像素数组（行优先，y*28+x）。
+/// 所有笔画共用全局包围盒（与 scripts/export_models.py 的 stroke_to_bitmap 一致），
+/// 每段笔画独立画线——笔画之间不会产生连接线。
+fn strokes_to_bitmap(strokes: &[Vec<Point>]) -> Vec<f32> {
     let mut bitmap = vec![0.0f32; IMG_SIZE * IMG_SIZE];
-    if points.len() < 2 { return bitmap; }
-
-    let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
-    let ys: Vec<f64> = points.iter().map(|p| p.y).collect();
+    let xs: Vec<f64> = strokes.iter().flatten().map(|p| p.x).collect();
+    let ys: Vec<f64> = strokes.iter().flatten().map(|p| p.y).collect();
+    if xs.len() < 2 { return bitmap; }
     let min_x = xs.iter().cloned().fold(f64::INFINITY, f64::min);
     let max_x = xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let min_y = ys.iter().cloned().fold(f64::INFINITY, f64::min);
     let max_y = ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
     let scale = (max_x - min_x).max(max_y - min_y).max(1.0);
 
-    for i in 0..points.len() - 1 {
-        let x0 = ((points[i].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
-        let y0 = ((points[i].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
-        let x1 = ((points[i + 1].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
-        let y1 = ((points[i + 1].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
-        // Bresenham 画线 + 高斯加粗（3×3 核）
-        let dx = (x1 - x0).abs();
-        let dy = -(y1 - y0).abs();
-        let sx = if x0 < x1 { 1 } else { -1 };
-        let sy = if y0 < y1 { 1 } else { -1 };
-        let mut err = dx + dy;
-        let mut x = x0;
-        let mut y = y0;
-        loop {
-            for dy2 in -1isize..=1 {
-                for dx2 in -1isize..=1 {
-                    let nx = x + dx2;
-                    let ny = y + dy2;
-                    if nx >= 0 && nx < IMG_SIZE as isize && ny >= 0 && ny < IMG_SIZE as isize {
-                        let w = if dx2 == 0 && dy2 == 0 { 1.0 } else { 0.5 };
-                        bitmap[(ny as usize) * IMG_SIZE + nx as usize] = (bitmap[(ny as usize) * IMG_SIZE + nx as usize] + w as f32).min(1.0);
+    for points in strokes {
+        if points.len() < 2 { continue; }
+        for i in 0..points.len() - 1 {
+            let x0 = ((points[i].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+            let y0 = ((points[i].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+            let x1 = ((points[i + 1].x - min_x) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+            let y1 = ((points[i + 1].y - min_y) / scale * (IMG_SIZE as f64 - 1.0)) as isize;
+            // Bresenham 画线 + 高斯加粗（3×3 核）
+            let dx = (x1 - x0).abs();
+            let dy = -(y1 - y0).abs();
+            let sx = if x0 < x1 { 1 } else { -1 };
+            let sy = if y0 < y1 { 1 } else { -1 };
+            let mut err = dx + dy;
+            let mut x = x0;
+            let mut y = y0;
+            loop {
+                for dy2 in -1isize..=1 {
+                    for dx2 in -1isize..=1 {
+                        let nx = x + dx2;
+                        let ny = y + dy2;
+                        if nx >= 0 && nx < IMG_SIZE as isize && ny >= 0 && ny < IMG_SIZE as isize {
+                            let w = if dx2 == 0 && dy2 == 0 { 1.0 } else { 0.5 };
+                            bitmap[(ny as usize) * IMG_SIZE + nx as usize] = (bitmap[(ny as usize) * IMG_SIZE + nx as usize] + w as f32).min(1.0);
+                        }
                     }
                 }
+                if x == x1 && y == y1 { break; }
+                let e2 = 2 * err;
+                if e2 >= dy { err += dy; x += sx; }
+                if e2 <= dx { err += dx; y += sy; }
             }
-            if x == x1 && y == y1 { break; }
-            let e2 = 2 * err;
-            if e2 >= dy { err += dy; x += sx; }
-            if e2 <= dx { err += dx; y += sy; }
         }
     }
 
@@ -228,8 +232,8 @@ impl CnnWeights {
         })
     }
 
-    pub fn predict(&self, points: &[Point]) -> (usize, f32) {
-        let input = points_to_bitmap(points); // 1×28×28（行优先）
+    pub fn predict(&self, strokes: &[Vec<Point>]) -> (usize, f32) {
+        let input = strokes_to_bitmap(strokes); // 1×28×28（行优先）
 
         let p1 = conv_block(&input, &self.conv1_w, &self.conv1_b, 1, C1, IMG_SIZE, IMG_SIZE); // 16×14×14
         let p2 = conv_block(&p1, &self.conv2_w, &self.conv2_b, C1, C2, IMG_SIZE / 2, IMG_SIZE / 2); // 32×7×7
@@ -295,28 +299,43 @@ mod tests {
 
     #[test]
     fn test_bitmap_line_has_pixels() {
-        let bm = points_to_bitmap(&make_line());
+        let bm = strokes_to_bitmap(&[make_line()]);
         let active = bm.iter().filter(|&&v| v > 0.0).count();
         assert!(active > 10, "line should produce {active} active pixels");
     }
 
     #[test]
     fn test_bitmap_rect_has_pixels() {
-        let bm = points_to_bitmap(&make_rect());
+        let bm = strokes_to_bitmap(&[make_rect()]);
         let active = bm.iter().filter(|&&v| v > 0.0).count();
         assert!(active > 40, "rect should have > 40 active pixels, got {active}");
     }
 
     #[test]
     fn test_bitmap_empty_all_zero() {
-        let bm = points_to_bitmap(&[]);
+        let bm = strokes_to_bitmap(&[]);
         assert_eq!(bm.iter().sum::<f32>(), 0.0);
     }
 
     #[test]
     fn test_bitmap_single_point_empty() {
-        let bm = points_to_bitmap(&[Point { x: 5.0, y: 5.0 }]);
+        let bm = strokes_to_bitmap(&[vec![Point { x: 5.0, y: 5.0 }]]);
         assert_eq!(bm.iter().sum::<f32>(), 0.0);
+    }
+
+    #[test]
+    fn test_multi_stroke_not_connected() {
+        // 两条水平线（不同 y），各自独立渲染，不应有连接像素
+        let s1: Vec<Point> = (0..20).map(|i| Point { x: i as f64, y: 10.0 }).collect();
+        let s2: Vec<Point> = (0..20).map(|i| Point { x: i as f64, y: 20.0 }).collect();
+        let bm = strokes_to_bitmap(&[s1, s2]);
+        // 两条线各自加粗 3 行（中心行 + 上下邻行），中间区域必须为空
+        for r in 2..13 {
+            assert!(
+                (0..IMG_SIZE).all(|c| bm[r * IMG_SIZE + c] == 0.0),
+                "row {r} should be empty (strokes must not be connected)"
+            );
+        }
     }
 
     #[test]
@@ -346,10 +365,10 @@ mod tests {
         }
         let model = CnnWeights::load(path).expect("should load model");
         // 只验证模型可以完成推理，不验证结果（结果依赖训练数据质量）
-        let (_idx, _conf) = model.predict(&make_line());
-        let (_idx, _conf) = model.predict(&make_rect());
-        let (_idx, _conf) = model.predict(&make_circle());
-        let (_idx, _conf) = model.predict(&make_triangle());
-        let (_idx, _conf) = model.predict(&make_trapezoid());
+        let (_idx, _conf) = model.predict(&[make_line()]);
+        let (_idx, _conf) = model.predict(&[make_rect()]);
+        let (_idx, _conf) = model.predict(&[make_circle()]);
+        let (_idx, _conf) = model.predict(&[make_triangle()]);
+        let (_idx, _conf) = model.predict(&[make_trapezoid()]);
     }
 }

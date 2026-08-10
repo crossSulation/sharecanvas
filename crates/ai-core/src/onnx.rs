@@ -52,9 +52,9 @@ impl OnnxSession {
         Ok(crate::smooth_points(points, 2))
     }
 
-    pub fn classify_shape(&self, points: &[Point]) -> Result<Option<DetectedShape>, String> {
+    pub fn classify_shape(&self, strokes: &[Vec<Point>]) -> Result<Option<DetectedShape>, String> {
         let cnn = self.cnn.as_ref().ok_or("CNN model not loaded")?;
-        let (idx, conf) = cnn.predict(points);
+        let (idx, conf) = cnn.predict(strokes);
 
         let labels: [&str; 13] = [
             "ellipse", "rect", "line", "triangle", "arrow",
@@ -66,8 +66,8 @@ impl OnnxSession {
         use crate::log_decision;
         log_decision("cnn", "sketch", kind, conf as f64);
 
-        let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
-        let ys: Vec<f64> = points.iter().map(|p| p.y).collect();
+        let xs: Vec<f64> = strokes.iter().flatten().map(|p| p.x).collect();
+        let ys: Vec<f64> = strokes.iter().flatten().map(|p| p.y).collect();
 
         Ok(Some(DetectedShape {
             kind: kind.to_string(),

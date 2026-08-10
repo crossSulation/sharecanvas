@@ -90,19 +90,20 @@ struct AiStatus {
 }
 
 #[tauri::command]
-fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
+fn beautify_stroke(strokes: Vec<Vec<Point>>) -> SmoothResult {
     let session = get_session().lock().unwrap();
+    let flat: Vec<Point> = strokes.iter().flatten().cloned().collect();
 
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
-        match session.classify_shape(&points) {
+        match session.classify_shape(&strokes) {
             Ok(Some(shape)) => {
                 let entry = format!("AI onnx kind={} conf={:.3}", shape.kind, shape.confidence);
                 log::info!("{}", entry);
                 write_log(&entry);
-                (session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2)), Some(shape))
+                (session.smooth_stroke(&flat).unwrap_or_else(|_| smooth_points(&flat, 2)), Some(shape))
             }
             _ => {
-                let s = session.smooth_stroke(&points).unwrap_or_else(|_| smooth_points(&points, 2));
+                let s = session.smooth_stroke(&flat).unwrap_or_else(|_| smooth_points(&flat, 2));
                 let d = detect_shape(&s);
                 if let Some(ref shape) = d {
                     let entry = format!("AI pure(onnx-fallback) kind={} conf={:.3}", shape.kind, shape.confidence);
@@ -112,7 +113,7 @@ fn beautify_stroke(points: Vec<Point>) -> SmoothResult {
             }
         }
     } else {
-        let s = smooth_points(&points, 2);
+        let s = smooth_points(&flat, 2);
         let d = detect_shape(&s);
         if let Some(ref shape) = d {
             let entry = format!("AI pure kind={} conf={:.3}", shape.kind, shape.confidence);

@@ -23,20 +23,34 @@ fn main() -> Result<(), String> {
         if line.is_empty() {
             continue;
         }
+        // 格式: <kind> <stroke_count> <len_1> ... <len_M> <x y x y ...>
+        // 所有长度在前，坐标随后按笔画依次排列
         let toks: Vec<&str> = line.split_whitespace().collect();
         let expected = toks[0].to_string();
-        let n: usize = toks[1].parse().map_err(|_| "bad count")?;
-        let mut pts = Vec::with_capacity(n);
-        for i in 0..n {
-            let x: f64 = toks[2 + i * 2].parse().map_err(|_| "bad x")?;
-            let y: f64 = toks[3 + i * 2].parse().map_err(|_| "bad y")?;
-            pts.push(Point { x, y });
+        let m: usize = toks[1].parse().map_err(|_| "bad stroke count")?;
+        let mut idx = 2usize;
+        let mut lens = Vec::with_capacity(m);
+        for _ in 0..m {
+            let len: usize = toks[idx].parse().map_err(|_| "bad stroke len")?;
+            idx += 1;
+            lens.push(len);
         }
-        if pts.len() < 2 {
+        let mut strokes: Vec<Vec<Point>> = Vec::with_capacity(m);
+        for len in lens {
+            let mut pts = Vec::with_capacity(len);
+            for _ in 0..len {
+                let x: f64 = toks[idx].parse().map_err(|_| "bad x")?;
+                let y: f64 = toks[idx + 1].parse().map_err(|_| "bad y")?;
+                idx += 2;
+                pts.push(Point { x, y });
+            }
+            strokes.push(pts);
+        }
+        if strokes.iter().map(|s| s.len()).sum::<usize>() < 2 {
             continue;
         }
 
-        let shape = session.classify_shape(&pts)?;
+        let shape = session.classify_shape(&strokes)?;
         let got = shape.as_ref().map(|s| s.kind.clone()).unwrap_or_default();
         total += 1;
         let e = per.entry(expected.clone()).or_insert((0, 0));
