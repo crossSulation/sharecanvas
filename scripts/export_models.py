@@ -109,15 +109,57 @@ def rotate_pts(pts, angle):
     return np.stack([x, y], axis=1)
 
 
+def split_strokes(pts, n_strokes, rng):
+    """把一条闭合折线拆成 n 段笔画，模拟多笔绘制（三角形三笔、矩形两笔等真实画法）。
+    优先在角点处拆（转折角 >30° 的位置），贴合真实画法；若首尾闭合则去掉重复的收尾点。"""
+    pts = np.asarray(pts)
+    if n_strokes <= 1 or len(pts) < 3:
+        return [pts]
+    if np.allclose(pts[0], pts[-1]):
+        pts = pts[:-1]
+    if len(pts) < 2:
+        return [pts]
+    # 找角点：相邻两段方向变化超过 ~30° 的位置
+    corners = []
+    n = len(pts)
+    for i in range(n):
+        p0 = pts[i - 1]
+        p1 = pts[i]
+        p2 = pts[(i + 1) % n]
+        v1 = p1 - p0
+        v2 = p2 - p1
+        n1 = np.linalg.norm(v1)
+        n2 = np.linalg.norm(v2)
+        if n1 < 1e-6 or n2 < 1e-6:
+            continue
+        cos = np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)
+        if abs(cos) < 0.87:
+            corners.append(i)
+    candidates = corners if len(corners) >= n_strokes - 1 else list(range(len(pts)))
+    cuts = sorted(rng.choice(candidates, size=min(n_strokes - 1, len(candidates)), replace=False))
+    cuts = [0] + cuts + [len(pts)]
+    strokes = []
+    for i in range(len(cuts) - 1):
+        seg = pts[cuts[i]:cuts[i + 1]]
+        if len(seg) >= 2:
+            strokes.append(seg)
+    return strokes or [pts]
+
+
 def gen_synthetic_bitmap_samples(label, n=2000):
-    """生成合成形状的 28×28 位图样本（带噪声 + 随机旋转）"""
+    """生成合成形状的 28×28 位图样本（带噪声 + 随机旋转 + 随机多笔拆分）"""
     gen = GENERATORS[label]
     result = np.zeros((n, IMG_SIZE * IMG_SIZE), dtype=np.float32)
     for i in range(n):
         pts = gen().reshape(-1, 2).astype(np.float32)
         pts = pts + np.random.randn(MAX_POINTS, 2).astype(np.float32) * 0.02
         pts = rotate_pts(pts, np.random.uniform(0.0, 2.0 * math.pi))
-        result[i] = stroke_to_bitmap([pts])
+        # 约 40% 概率拆成 2~3 段笔画，贴近真实手绘（尤其三角形常三笔完成）
+        if np.random.random() < 0.4:
+            strokes = split_strokes(pts, int(np.random.randint(2, 4)), np.random.default_rng())
+            result[i] = stroke_to_bitmap(strokes)
+        else:
+            result[i] = stroke_to_bitmap([pts])
     return result
 
 
@@ -171,11 +213,20 @@ def gen_diamond():
 
 def gen_triangle():
     pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
-    tri = [(0, 0.7), (-0.7, -0.5), (0.7, -0.5)]
-    for i in range(3):
+    per = MAX_POINTS // 3
+    # 随机宽高与顶点偏移，覆盖窄高/扁平/不对称的真实画法
+    w = np.random.uniform(0.3, 0.9)
+    h = np.random.uniform(0.3, 0.9)
+    skew = np.random.uniform(-0.25, 0.25)
+    tri = [(skew, h), (-w, -h), (w, -h)]
+    for i in range(2):
         a, b = tri[i], tri[(i + 1) % 3]
-        pts[i * 33:(i + 1) * 33, 0] = np.linspace(a[0], b[0], 33)
-        pts[i * 33:(i + 1) * 33, 1] = np.linspace(a[1], b[1], 33)
+        pts[i * per:(i + 1) * per, 0] = np.linspace(a[0], b[0], per)
+        pts[i * per:(i + 1) * per, 1] = np.linspace(a[1], b[1], per)
+    # 最后一边补齐到 100 点并闭合回顶点 0（避免残留 (0,0) 造成内部线）
+    a, b = tri[2], tri[0]
+    pts[2 * per:, 0] = np.linspace(a[0], b[0], MAX_POINTS - 2 * per)
+    pts[2 * per:, 1] = np.linspace(a[1], b[1], MAX_POINTS - 2 * per)
     return pts.flatten()
 
 
@@ -186,6 +237,9 @@ def gen_star():
         angle = i * np.pi / 5 - np.pi / 2
         pts[i * 10:(i + 1) * 10, 0] = r * np.cos(angle)
         pts[i * 10:(i + 1) * 10, 1] = r * np.sin(angle)
+    # 收尾闭合：最后一个点回到顶点 0（原折线缺 inner9→outer0 这一小段）
+    pts[99, 0] = 0.7 * np.cos(-np.pi / 2)
+    pts[99, 1] = 0.7 * np.sin(-np.pi / 2)
     return pts.flatten()
 
 
@@ -204,10 +258,21 @@ def gen_parallelogram():
 def gen_hexagon():
     pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
     r = np.random.uniform(0.4, 0.7)
-    for i in range(6):
-        angle = i * np.pi / 3 - np.pi / 6
-        pts[i * 16:(i + 1) * 16, 0] = r * np.cos(angle)
-        pts[i * 16:(i + 1) * 16, 1] = r * np.sin(angle)
+    per = MAX_POINTS // 6
+    for i in range(5):
+        a_angle = i * np.pi / 3 - np.pi / 6
+        b_angle = (i + 1) * np.pi / 3 - np.pi / 6
+        ax, ay = r * np.cos(a_angle), r * np.sin(a_angle)
+        bx, by = r * np.cos(b_angle), r * np.sin(b_angle)
+        pts[i * per:(i + 1) * per, 0] = np.linspace(ax, bx, per)
+        pts[i * per:(i + 1) * per, 1] = np.linspace(ay, by, per)
+    # 最后一边补齐并闭合回顶点 0
+    a_angle = 5 * np.pi / 3 - np.pi / 6
+    b_angle = -np.pi / 6
+    ax, ay = r * np.cos(a_angle), r * np.sin(a_angle)
+    bx, by = r * np.cos(b_angle), r * np.sin(b_angle)
+    pts[5 * per:, 0] = np.linspace(ax, bx, MAX_POINTS - 5 * per)
+    pts[5 * per:, 1] = np.linspace(ay, by, MAX_POINTS - 5 * per)
     return pts.flatten()
 
 
@@ -229,13 +294,20 @@ def gen_polygon(sides):
         pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
         r = np.random.uniform(0.4, 0.7)
         per_side = MAX_POINTS // sides
-        for i in range(sides):
+        for i in range(sides - 1):
             a_angle = i * 2 * np.pi / sides - np.pi / sides
             b_angle = (i + 1) * 2 * np.pi / sides - np.pi / sides
             ax, ay = r * np.cos(a_angle), r * np.sin(a_angle)
             bx, by = r * np.cos(b_angle), r * np.sin(b_angle)
             pts[i * per_side:(i + 1) * per_side, 0] = np.linspace(ax, bx, per_side)
             pts[i * per_side:(i + 1) * per_side, 1] = np.linspace(ay, by, per_side)
+        # 最后一边补齐到 100 点并闭合回顶点 0
+        a_angle = (sides - 1) * 2 * np.pi / sides - np.pi / sides
+        b_angle = -np.pi / sides
+        ax, ay = r * np.cos(a_angle), r * np.sin(a_angle)
+        bx, by = r * np.cos(b_angle), r * np.sin(b_angle)
+        pts[(sides - 1) * per_side:, 0] = np.linspace(ax, bx, MAX_POINTS - (sides - 1) * per_side)
+        pts[(sides - 1) * per_side:, 1] = np.linspace(ay, by, MAX_POINTS - (sides - 1) * per_side)
         return pts.flatten()
     return _gen
 
@@ -346,6 +418,9 @@ def export_onnx(model, path):
 
 
 def main():
+    # 固定随机种子：合成数据可复现，便于对比不同增强/架构的效果
+    np.random.seed(42)
+    torch.manual_seed(42)
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="models/")
     parser.add_argument("--real", action="store_true", help="Use QuickDraw real data")

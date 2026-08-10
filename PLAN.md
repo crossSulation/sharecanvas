@@ -36,8 +36,8 @@
 - [x] L3: 模板市场（流程图、思维导图、故事板等预置模板）
 - [ ] L4: WebRTC 音视频通话
 - [x] L5: AI 辅助绘图 — 形状检测 + ONNX 模型 + 函数曲线（结构识别规划中，见下方详情）
-- [ ] L6: 导出格式扩展（PNG/SVG/PDF）
-- [ ] L7: 虚拟化渲染（只渲染视口内元素）
+- [x] L6: 导出格式扩展（PNG/SVG/PDF）
+- [x] L7: 虚拟化渲染（只渲染视口内元素）
 - [x] L8: 桌面端应用（Tauri v2 + 移动端）
 
 ---
@@ -132,6 +132,7 @@ classify_shape(points)
 | `crates/ai-core/src/onnx.rs` | ONNX 模型推理 + `SHAPE_LABELS` 映射 |
 | `src/lib/aiDraw.ts` | JS 版 detectShape + evalLinear/evalQuadratic |
 | `src/lib/aiBackend.ts` | 美化入口 + 三端调用分发 + regeneratePoints + handleDetected |
+| `src/lib/exportImage.ts` | 导出 PNG/SVG/PDF + 文档包围盒计算 |
 | `scripts/export_models.py` | ONNX 模型导出脚本 |
 | `native/src/lib.rs` | napi-rs 绑定（Node.js 端调用 Rust） |
 | `server/index.js` | Node.js AI 端点 + native addon 加载 |
@@ -154,6 +155,8 @@ classify_shape(points)
 **训练侧小杠杆（次要）**
 
 - 真实数据增强：随机平移 / 轻微旋转 / 线宽抖动
+- 合成数据多笔拆分：按角点切分（模拟三角形三笔、矩形两笔等真实画法）
+- 修复合成生成器残留 (0,0) 点导致的多边形内部假线；固定随机种子便于复现
 - 弱类加权 + 适当延长训练轮数
 
 #### 结构识别（表格、流程图、图表）
