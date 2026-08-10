@@ -62,15 +62,19 @@ def download_quickdraw(label, n):
 def stroke_to_bitmap(strokes):
     """将笔画列表 [(x1,y1), (x2,y2), ...] 渲染到 28×28 位图"""
     bm = np.zeros((IMG_SIZE, IMG_SIZE), dtype=np.float32)
+    # 全局包围盒：所有笔画共用同一归一化，多笔画图形才能正确拼合
+    all_x = [p[0] for st in strokes if len(st) >= 2 for p in st]
+    all_y = [p[1] for st in strokes if len(st) >= 2 for p in st]
+    if not all_x:
+        return bm.flatten()
+    min_x, max_x = min(all_x), max(all_x)
+    min_y, max_y = min(all_y), max(all_y)
+    scale = max(max_x - min_x, max_y - min_y, 1.0)
     for st in strokes:
         if len(st) < 2:
             continue
         xs = np.array([p[0] for p in st])
         ys = np.array([p[1] for p in st])
-        # 归一化 [-1,1] → [0,27]
-        min_x, max_x = xs.min(), xs.max()
-        min_y, max_y = ys.min(), ys.max()
-        scale = max(max_x - min_x, max_y - min_y, 1.0)
         gx = ((xs - min_x) / scale * (IMG_SIZE - 1)).astype(int)
         gy = ((ys - min_y) / scale * (IMG_SIZE - 1)).astype(int)
         for i in range(len(gx) - 1):
@@ -353,22 +357,21 @@ def main():
 
     X_list, y_list = [], []
     for i, label in enumerate(LABELS):
-        pts = None
         if args.real:
             data = download_quickdraw(label, args.samples)
             if data is not None:
                 # QuickDraw: 28×28 位图 → (N, 1, 28, 28)
                 pts = data.reshape(len(data), 1, IMG_SIZE, IMG_SIZE).astype(np.float32) / 255.0
+                X_list.append(pts)
+                y_list.extend([i] * len(pts))
+            else:
+                print(f"  {label}: QuickDraw not available")
 
-        if pts is not None and len(pts) > 0:
-            X_list.append(pts)
-            y_list.extend([i] * len(pts))
-        else:
-            if args.real:
-                print(f"  {label}: QuickDraw not available, using synthetic")
-            synth = gen_synthetic_bitmap_samples(label, 2000).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
-            X_list.append(synth)
-            y_list.extend([i] * len(synth))
+        # 始终加入合成数据：应用实际笔迹是细线风格（1px + 0.5 邻域），
+        # 而 QuickDraw 是粗笔画位图；只学一种风格会导致另一种完全不识别。
+        synth = gen_synthetic_bitmap_samples(label, 2000).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
+        X_list.append(synth)
+        y_list.extend([i] * len(synth))
 
         # 加载手绘训练数据（train_data/{label}.jsonl）
         real = load_real_samples(label)
