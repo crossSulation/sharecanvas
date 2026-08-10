@@ -1,17 +1,40 @@
 #!/usr/bin/env python3
-"""Export ONNX sketch AI models. uv pip install -r scripts/requirements.txt"""
+"""Train & export a 2D CNN sketch-shape classifier (PyTorch → .bin + ONNX).
 
-import argparse, os, json, numpy as np
-from sklearn.neural_network import MLPClassifier
-from sklearn.model_selection import cross_val_score
-from skl2onnx import convert_sklearn
-from skl2onnx.common.data_types import FloatTensorType
+Usage:
+    npm run models:export        # 等价于 uv venv + pip install -r + 本脚本 --real
+    python scripts/export_models.py --real
+"""
+
+import argparse
+import io
+import json
+import math
+import os
+import struct
+import sys
+
+import numpy as np
+import requests
+import torch
+import torch.nn as nn
+
+# 控制台可能是 GBK 编码，统一输出 UTF-8，避免 print 中文/箭头时崩溃
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
 LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
 MAX_POINTS = 100
 IMG_SIZE = 28
 CACHE_DIR = "samples"
+
+# 2D CNN 架构 —— 必须与 crates/ai-core/src/cnn.rs 保持一致
+CONV1_CH = 16
+CONV2_CH = 32
+CONV3_CH = 32
+FC_HIDDEN = 64
+KERNEL = 3
 
 
 def download_quickdraw(label, n):
@@ -25,21 +48,15 @@ def download_quickdraw(label, n):
     url = QUICKDRAW_URL.format(label)
     print(f"  Downloading {label}...", end=" ", flush=True)
     try:
-        import requests, io
         resp = requests.get(url, timeout=120)
         resp.raise_for_status()
         data = np.load(io.BytesIO(resp.content))
         np.save(cache_path, data)
-        print(f"{len(data)} samples → cached to {cache_path}")
+        print(f"{len(data)} samples -> cached to {cache_path}")
         return data[:n]
     except Exception as e:
         print(f"FAILED: {e}")
         return None
-
-
-def bitmap_to_points(bitmaps):
-    """QuickDraw 数据：28×28 位图保留原始格式，flatten 为 784 维"""
-    return bitmaps.reshape(len(bitmaps), IMG_SIZE * IMG_SIZE).astype(np.float32) / 255.0
 
 
 def stroke_to_bitmap(strokes):
@@ -80,12 +97,22 @@ def stroke_to_bitmap(strokes):
     return bm.flatten()
 
 
-def gen_synthetic_bitmap_samples(label, n=300):
-    """生成合成形状的 28×28 位图样本"""
+def rotate_pts(pts, angle):
+    """旋转 MAX_POINTS×2 的点数组（合成数据增强：任意角度）"""
+    c, s = math.cos(angle), math.sin(angle)
+    x = pts[:, 0] * c - pts[:, 1] * s
+    y = pts[:, 0] * s + pts[:, 1] * c
+    return np.stack([x, y], axis=1)
+
+
+def gen_synthetic_bitmap_samples(label, n=2000):
+    """生成合成形状的 28×28 位图样本（带噪声 + 随机旋转）"""
     gen = GENERATORS[label]
     result = np.zeros((n, IMG_SIZE * IMG_SIZE), dtype=np.float32)
     for i in range(n):
-        pts = gen().reshape(-1, 2) + np.random.randn(MAX_POINTS * 2).reshape(-1, 2).astype(np.float32) * 0.02
+        pts = gen().reshape(-1, 2).astype(np.float32)
+        pts = pts + np.random.randn(MAX_POINTS, 2).astype(np.float32) * 0.02
+        pts = rotate_pts(pts, np.random.uniform(0.0, 2.0 * math.pi))
         result[i] = stroke_to_bitmap([pts])
     return result
 
@@ -221,15 +248,6 @@ GENERATORS = {
 }
 
 
-def gen_synthetic_samples(label, n=300):
-    gen = GENERATORS[label]
-    return np.array(
-        [gen() + np.random.randn(MAX_POINTS * 2).astype(np.float32) * 0.03
-         for _ in range(n)],
-        dtype=np.float32,
-    )
-
-
 def load_real_samples(label, train_dir="train_data"):
     """从 train_data/{label}.jsonl 加载手绘数据，渲染为 28×28 位图"""
     path = os.path.join(train_dir, f"{label}.jsonl")
@@ -241,7 +259,6 @@ def load_real_samples(label, train_dir="train_data"):
             try:
                 entry = json.loads(line)
                 strokes = entry.get("strokes", [entry.get("points", [])])
-                # 将笔画转为坐标对
                 stroke_pairs = []
                 for st in strokes:
                     pairs = [(st[j]["x"], st[j]["y"]) for j in range(len(st))]
@@ -257,9 +274,71 @@ def load_real_samples(label, train_dir="train_data"):
     return np.array(all_bitmaps, dtype=np.float32)
 
 
-def real_samples_to_points(samples):
-    """将 train_data jsonl 中的样本转为 bitmap_to_points 兼容格式"""
-    return samples
+class SketchCNN(nn.Module):
+    """28×28 → Conv(16) → pool → Conv(32) → pool → Conv(32) → pool → FC(64) → 13"""
+
+    def __init__(self, num_classes=len(LABELS)):
+        super().__init__()
+        self.conv1 = nn.Conv2d(1, CONV1_CH, KERNEL, padding=1)
+        self.conv2 = nn.Conv2d(CONV1_CH, CONV2_CH, KERNEL, padding=1)
+        self.conv3 = nn.Conv2d(CONV2_CH, CONV3_CH, KERNEL, padding=1)
+        self.pool = nn.MaxPool2d(2)
+        # 28 → 14 → 7 → 3（MaxPool2d 向下取整）
+        self.flatten = 3 * 3 * CONV3_CH
+        self.fc1 = nn.Linear(self.flatten, FC_HIDDEN)
+        self.fc2 = nn.Linear(FC_HIDDEN, num_classes)
+
+    def forward(self, x):
+        x = self.pool(torch.relu(self.conv1(x)))
+        x = self.pool(torch.relu(self.conv2(x)))
+        x = self.pool(torch.relu(self.conv3(x)))
+        x = x.flatten(1)
+        x = torch.relu(self.fc1(x))
+        return self.fc2(x)
+
+
+def save_bin(model, path):
+    """保存自定义 .bin 格式：SCNN 魔数 + 版本 + 张量序列（与 cnn.rs 读取顺序一致）"""
+    sd = model.state_dict()
+    tensors = [
+        sd["conv1.weight"], sd["conv1.bias"],
+        sd["conv2.weight"], sd["conv2.bias"],
+        sd["conv3.weight"], sd["conv3.bias"],
+        sd["fc1.weight"], sd["fc1.bias"],
+        sd["fc2.weight"], sd["fc2.bias"],
+    ]
+    with open(path, "wb") as f:
+        f.write(b"SCNN")
+        f.write(struct.pack("I", 1))
+        for t in tensors:
+            arr = t.detach().cpu().numpy().astype(np.float32)
+            f.write(struct.pack("II", arr.ndim, 1))
+            for d in arr.shape:
+                f.write(struct.pack("I", d))
+            f.write(arr.tobytes())
+
+
+def export_onnx(model, path):
+    model.eval()
+    dummy = torch.randn(1, 1, IMG_SIZE, IMG_SIZE)
+    torch.onnx.export(
+        model, dummy, path,
+        input_names=["float_input"], output_names=["output"],
+        opset_version=15,
+        dynamo=False,
+        dynamic_axes={"float_input": {0: "batch"}, "output": {0: "batch"}},
+    )
+    # 合并 external data，保持单文件可移植
+    import onnx
+    m = onnx.load(path)
+    onnx.save(m, path, save_as_external_data=False)
+    try:
+        from onnxsim import simplify
+        onx, check = simplify(m, check_n=1, skip_shape_inference=False)
+        onnx.save(onx, path, save_as_external_data=False)
+        print(f"  simplified ONNX: check={check}")
+    except ImportError:
+        pass
 
 
 def main():
@@ -267,6 +346,8 @@ def main():
     parser.add_argument("--output", default="models/")
     parser.add_argument("--real", action="store_true", help="Use QuickDraw real data")
     parser.add_argument("--samples", type=int, default=2000)
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--batch", type=int, default=128)
     args = parser.parse_args()
     os.makedirs(args.output, exist_ok=True)
 
@@ -276,8 +357,8 @@ def main():
         if args.real:
             data = download_quickdraw(label, args.samples)
             if data is not None:
-                # QuickDraw: 28×28 位图直接 flatten → 784 维
-                pts = data.reshape(len(data), IMG_SIZE * IMG_SIZE).astype(np.float32) / 255.0
+                # QuickDraw: 28×28 位图 → (N, 1, 28, 28)
+                pts = data.reshape(len(data), 1, IMG_SIZE, IMG_SIZE).astype(np.float32) / 255.0
 
         if pts is not None and len(pts) > 0:
             X_list.append(pts)
@@ -285,7 +366,7 @@ def main():
         else:
             if args.real:
                 print(f"  {label}: QuickDraw not available, using synthetic")
-            synth = gen_synthetic_bitmap_samples(label, 2000)
+            synth = gen_synthetic_bitmap_samples(label, 2000).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
             X_list.append(synth)
             y_list.extend([i] * len(synth))
 
@@ -293,55 +374,81 @@ def main():
         real = load_real_samples(label)
         if real is not None and len(real) > 0:
             print(f"  {label}: {len(real)} real hand-drawn samples loaded (oversampled 5x)")
-            oversampled = np.tile(real, (5, 1))
+            oversampled = np.tile(real, (5, 1)).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
             X_list.append(oversampled)
             y_list.extend([i] * len(oversampled))
 
-    X = np.vstack(X_list).astype(np.float32)
+    X = np.concatenate(X_list, axis=0).astype(np.float32)
     y = np.array(y_list)
-    print(f"\nTraining data: {len(X)} samples, {len(set(y))} classes")
+    print(f"\nTraining data: {len(X)} samples, {len(set(y))} classes, shape {X.shape}")
 
-    clf = MLPClassifier(hidden_layer_sizes=(256, 128), max_iter=800,
-                         random_state=42, early_stopping=True, batch_size=200)
-    clf.fit(X, y)
+    # 按类别分层划分 train/val（90/10）
+    rng = np.random.default_rng(42)
+    train_idx, val_idx = [], []
+    for c in np.unique(y):
+        idx = np.where(y == c)[0]
+        rng.shuffle(idx)
+        split = int(len(idx) * 0.9)
+        train_idx.extend(idx[:split])
+        val_idx.extend(idx[split:])
+    train_idx = np.array(train_idx)
+    val_idx = np.array(val_idx)
 
-    print("Cross-validation (5-fold)...")
-    scores = cross_val_score(clf, X, y, cv=5)
-    print(f"  CV accuracy: {scores.mean():.1%} ± {scores.std():.1%}")
-    print(f"  Per-fold: {[f'{s:.1%}' for s in scores]}")
+    X_t = torch.from_numpy(X[train_idx])
+    y_t = torch.from_numpy(y[train_idx].astype(np.int64))
+    X_v = torch.from_numpy(X[val_idx])
+    y_v = torch.from_numpy(y[val_idx].astype(np.int64))
 
-    # Save pure-Rust weights (no ONNX runtime needed)
-    import struct
-    weights = {
-        'w1': clf.coefs_[0].astype(np.float32).copy(),     # (h1, input_dim)
-        'b1': clf.intercepts_[0].astype(np.float32).copy(),
-        'w2': clf.coefs_[1].astype(np.float32).copy(),     # (h2, h1)
-        'b2': clf.intercepts_[1].astype(np.float32).copy(),
-        'w3': clf.coefs_[2].astype(np.float32).copy(),     # (classes, h2)
-        'b3': clf.intercepts_[2].astype(np.float32).copy(),
-    }
+    torch.manual_seed(42)
+    model = SketchCNN()
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    loss_fn = nn.CrossEntropyLoss()
+    loader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(X_t, y_t),
+        batch_size=args.batch, shuffle=True,
+    )
+
+    best_acc, best_state = 0.0, None
+    for epoch in range(args.epochs):
+        model.train()
+        total, correct, running = 0, 0, 0.0
+        for xb, yb in loader:
+            opt.zero_grad()
+            out = model(xb)
+            loss = loss_fn(out, yb)
+            loss.backward()
+            opt.step()
+            running += loss.item() * len(xb)
+            total += len(xb)
+            correct += (out.argmax(1) == yb).sum().item()
+
+        model.eval()
+        with torch.no_grad():
+            val_acc = (model(X_v).argmax(1) == y_v).float().mean().item()
+        print(f"  epoch {epoch+1:2d}/{args.epochs}  train_loss={running/total:.4f} "
+              f"train_acc={correct/total:.4f} val_acc={val_acc:.4f}")
+        if val_acc > best_acc:
+            best_acc = val_acc
+            best_state = {k: v.clone() for k, v in model.state_dict().items()}
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+
+    model.eval()
+    with torch.no_grad():
+        val_out = model(X_v).argmax(1).numpy()
+    y_v_np = y_v.numpy()
+    print(f"\nVal accuracy (best): {best_acc:.1%}")
+    for c in np.unique(y_v_np):
+        mask = y_v_np == c
+        print(f"  {LABELS[c]:<12} {np.mean(val_out[mask] == c):.1%}")
+
     bin_path = os.path.join(args.output, "sketch_classify.bin")
-    with open(bin_path, 'wb') as f:
-        for key in ['w1', 'b1', 'w2', 'b2', 'w3', 'b3']:
-            arr = weights[key]
-            f.write(struct.pack('II', arr.ndim, 1 if arr.dtype == np.float32 else 0))
-            for d in arr.shape:
-                f.write(struct.pack('I', d))
-            f.write(arr.tobytes())
+    save_bin(model, bin_path)
     print(f"Saved weights: {bin_path} ({os.path.getsize(bin_path) / 1024:.1f} KB)")
 
-    # Also export ONNX for reference
-    onx = convert_sklearn(clf, initial_types=[("float_input", FloatTensorType([1, IMG_SIZE * IMG_SIZE]))],
-                          target_opset=15, options={id(clf): {'zipmap': False}})
-    import onnx
-    from onnxsim import simplify
-    try:
-        onx, check = simplify(onx, check_n=1, skip_shape_inference=False)
-    except ImportError:
-        pass
     onnx_path = os.path.join(args.output, "sketch_classify.onnx")
-    with open(onnx_path, "wb") as f:
-        f.write(onx.SerializeToString())
+    export_onnx(model, onnx_path)
     print(f"Saved ONNX: {onnx_path} ({os.path.getsize(onnx_path)/1024:.1f} KB)")
     print("Done!")
 

@@ -2,17 +2,24 @@ use crate::Point;
 use std::path::Path;
 use std::io::Read;
 
-pub struct MlWeights {
-    w1: Box<[f32]>, b1: Box<[f32]>,
-    w2: Box<[f32]>, b2: Box<[f32]>,
-    w3: Box<[f32]>, b3: Box<[f32]>,
-    h1: usize, h2: usize, num_classes: usize,
-    in_dim: usize,
+// 架构必须与 scripts/export_models.py 中的 SketchCNN 保持一致
+const IMG_SIZE: usize = 28;
+const C1: usize = 16; // conv1 输出通道
+const C2: usize = 32; // conv2 输出通道
+const C3: usize = 32; // conv3 输出通道
+const FC_HIDDEN: usize = 64;
+const NUM_CLASSES: usize = 13;
+const K: usize = 3; // 卷积核大小
+
+pub struct CnnWeights {
+    conv1_w: Box<[f32]>, conv1_b: Box<[f32]>,
+    conv2_w: Box<[f32]>, conv2_b: Box<[f32]>,
+    conv3_w: Box<[f32]>, conv3_b: Box<[f32]>,
+    fc1_w: Box<[f32]>, fc1_b: Box<[f32]>,
+    fc2_w: Box<[f32]>, fc2_b: Box<[f32]>,
 }
 
-const IMG_SIZE: usize = 28;
-
-/// 渲染笔画到 28×28 位图，返回 784 维归一化像素数组
+/// 渲染笔画到 28×28 位图，返回 784 维归一化像素数组（行优先，y*28+x）
 fn points_to_bitmap(points: &[Point]) -> Vec<f32> {
     let mut bitmap = vec![0.0f32; IMG_SIZE * IMG_SIZE];
     if points.len() < 2 { return bitmap; }
@@ -59,13 +66,72 @@ fn points_to_bitmap(points: &[Point]) -> Vec<f32> {
     bitmap
 }
 
-fn matmul_add_relu(out: &mut [f32], inp: &[f32], w: &[f32], b: &[f32], rows: usize, cols: usize) {
+/// 3×3 卷积，padding=1，stride=1，输出尺寸与输入一致（same 模式）
+/// 输入/权重均为行优先：输入 (in_c, h, w)，权重 (out_c, in_c, 3, 3)
+fn conv2d_same(inp: &[f32], w: &[f32], b: &[f32], in_c: usize, out_c: usize, h: usize, wd: usize) -> Vec<f32> {
+    let pad = K / 2;
+    let mut out = vec![0.0f32; out_c * h * wd];
+    for oc in 0..out_c {
+        let bias = b[oc];
+        for y in 0..h {
+            for x in 0..wd {
+                let mut s = bias;
+                for ic in 0..in_c {
+                    for ky in 0..K {
+                        let yy = y as isize + ky as isize - pad as isize;
+                        if yy < 0 || yy >= h as isize { continue; }
+                        for kx in 0..K {
+                            let xx = x as isize + kx as isize - pad as isize;
+                            if xx < 0 || xx >= wd as isize { continue; }
+                            let w_idx = ((oc * in_c + ic) * K + ky) * K + kx;
+                            let in_idx = (ic * h + yy as usize) * wd + xx as usize;
+                            s += inp[in_idx] * w[w_idx];
+                        }
+                    }
+                }
+                out[(oc * h + y) * wd + x] = s;
+            }
+        }
+    }
+    out
+}
+
+/// 2×2 最大池化，stride=2，尺寸向下取整
+fn maxpool2x2(inp: &[f32], channels: usize, h: usize, wd: usize) -> Vec<f32> {
+    let oh = h / 2;
+    let ow = wd / 2;
+    let mut out = vec![0.0f32; channels * oh * ow];
+    for ch in 0..channels {
+        for y in 0..oh {
+            for x in 0..ow {
+                let mut m = f32::NEG_INFINITY;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let v = inp[(ch * h + y * 2 + dy) * wd + x * 2 + dx];
+                        if v > m { m = v; }
+                    }
+                }
+                out[(ch * oh + y) * ow + x] = m;
+            }
+        }
+    }
+    out
+}
+
+fn relu_inplace(v: &mut [f32]) {
+    for x in v.iter_mut() {
+        if *x < 0.0 { *x = 0.0; }
+    }
+}
+
+/// 全连接层：out = relu?(W·in + b)，权重行优先 (rows=out, cols=in)
+fn matmul(out: &mut [f32], inp: &[f32], w: &[f32], b: &[f32], rows: usize, cols: usize, use_relu: bool) {
     for r in 0..rows {
         let mut s = b[r];
         for c in 0..cols {
             s += inp[c] * w[r * cols + c];
         }
-        out[r] = if s > 0.0 { s } else { 0.0 };
+        out[r] = if use_relu && s < 0.0 { 0.0 } else { s };
     }
 }
 
@@ -79,9 +145,32 @@ fn softmax_flat(x: &mut [f32]) {
     for v in x.iter_mut() { *v /= sum; }
 }
 
-impl MlWeights {
+/// conv(3×3, same) → ReLU → maxpool(2×2)
+fn conv_block(inp: &[f32], w: &[f32], b: &[f32], in_c: usize, out_c: usize, h: usize, wd: usize) -> Vec<f32> {
+    let mut x = conv2d_same(inp, w, b, in_c, out_c, h, wd);
+    relu_inplace(&mut x);
+    maxpool2x2(&x, out_c, h, wd)
+}
+
+impl CnnWeights {
     pub fn load(path: &Path) -> Result<Self, String> {
         let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+
+        let mut magic = [0u8; 4];
+        f.read_exact(&mut magic).map_err(|e| e.to_string())?;
+        if &magic != b"SCNN" {
+            return Err(format!(
+                "unsupported model format (magic {:?}) — retrain with scripts/export_models.py (2D CNN)",
+                String::from_utf8_lossy(&magic)
+            ));
+        }
+        let mut ver_buf = [0u8; 4];
+        f.read_exact(&mut ver_buf).map_err(|e| e.to_string())?;
+        let version = u32::from_le_bytes(ver_buf);
+        if version != 1 {
+            return Err(format!("unsupported model version {version}"));
+        }
+
         let mut read_array = || -> Result<(Vec<f32>, Vec<usize>), String> {
             let mut hdr = [0u8; 8];
             f.read_exact(&mut hdr).map_err(|e| e.to_string())?;
@@ -100,33 +189,58 @@ impl MlWeights {
             Ok((data, shape))
         };
 
-        let (w1, s1) = read_array()?; // (input, h1)
-        let (b1, _) = read_array()?;
-        let (w2, s2) = read_array()?; // (h1, h2)
-        let (b2, _) = read_array()?;
-        let (w3, s3) = read_array()?; // (h2, classes)
-        let (b3, _) = read_array()?;
+        fn expect_shape(shape: &[usize], expected: &[usize], name: &str) -> Result<(), String> {
+            if shape != expected {
+                return Err(format!(
+                    "model architecture mismatch: {name} shape {shape:?}, expected {expected:?} — retrain with scripts/export_models.py"
+                ));
+            }
+            Ok(())
+        }
+
+        let (conv1_w, s) = read_array()?;
+        expect_shape(&s, &[C1, 1, K, K], "conv1.weight")?;
+        let (conv1_b, s) = read_array()?;
+        expect_shape(&s, &[C1], "conv1.bias")?;
+        let (conv2_w, s) = read_array()?;
+        expect_shape(&s, &[C2, C1, K, K], "conv2.weight")?;
+        let (conv2_b, s) = read_array()?;
+        expect_shape(&s, &[C2], "conv2.bias")?;
+        let (conv3_w, s) = read_array()?;
+        expect_shape(&s, &[C3, C2, K, K], "conv3.weight")?;
+        let (conv3_b, s) = read_array()?;
+        expect_shape(&s, &[C3], "conv3.bias")?;
+        let (fc1_w, s) = read_array()?;
+        expect_shape(&s, &[FC_HIDDEN, C3 * 3 * 3], "fc1.weight")?;
+        let (fc1_b, s) = read_array()?;
+        expect_shape(&s, &[FC_HIDDEN], "fc1.bias")?;
+        let (fc2_w, s) = read_array()?;
+        expect_shape(&s, &[NUM_CLASSES, FC_HIDDEN], "fc2.weight")?;
+        let (fc2_b, s) = read_array()?;
+        expect_shape(&s, &[NUM_CLASSES], "fc2.bias")?;
 
         Ok(Self {
-            w1: w1.into_boxed_slice(), b1: b1.into_boxed_slice(),
-            w2: w2.into_boxed_slice(), b2: b2.into_boxed_slice(),
-            w3: w3.into_boxed_slice(), b3: b3.into_boxed_slice(),
-            h1: s1[1], h2: s2[1], num_classes: s3[1],
-            in_dim: s1[0],
+            conv1_w: conv1_w.into_boxed_slice(), conv1_b: conv1_b.into_boxed_slice(),
+            conv2_w: conv2_w.into_boxed_slice(), conv2_b: conv2_b.into_boxed_slice(),
+            conv3_w: conv3_w.into_boxed_slice(), conv3_b: conv3_b.into_boxed_slice(),
+            fc1_w: fc1_w.into_boxed_slice(), fc1_b: fc1_b.into_boxed_slice(),
+            fc2_w: fc2_w.into_boxed_slice(), fc2_b: fc2_b.into_boxed_slice(),
         })
     }
 
     pub fn predict(&self, points: &[Point]) -> (usize, f32) {
-        let input = points_to_bitmap(points);
-        let in_dim = self.in_dim;
+        let input = points_to_bitmap(points); // 1×28×28（行优先）
 
-        let mut h1 = vec![0.0f32; self.h1];
-        let mut h2 = vec![0.0f32; self.h2];
-        let mut out = vec![0.0f32; self.num_classes];
+        let p1 = conv_block(&input, &self.conv1_w, &self.conv1_b, 1, C1, IMG_SIZE, IMG_SIZE); // 16×14×14
+        let p2 = conv_block(&p1, &self.conv2_w, &self.conv2_b, C1, C2, IMG_SIZE / 2, IMG_SIZE / 2); // 32×7×7
+        let p3 = conv_block(&p2, &self.conv3_w, &self.conv3_b, C2, C3, IMG_SIZE / 4, IMG_SIZE / 4); // 32×3×3
 
-        matmul_add_relu(&mut h1, &input[..in_dim], &self.w1, &self.b1, self.h1, in_dim);
-        matmul_add_relu(&mut h2, &h1, &self.w2, &self.b2, self.h2, self.h1);
-        matmul_add_relu(&mut out, &h2, &self.w3, &self.b3, self.num_classes, self.h2);
+        let flat_len = C3 * 3 * 3;
+        let mut hidden = vec![0.0f32; FC_HIDDEN];
+        matmul(&mut hidden, &p3, &self.fc1_w, &self.fc1_b, FC_HIDDEN, flat_len, true);
+
+        let mut out = vec![0.0f32; NUM_CLASSES];
+        matmul(&mut out, &hidden, &self.fc2_w, &self.fc2_b, NUM_CLASSES, FC_HIDDEN, false);
         softmax_flat(&mut out);
 
         let mut max_idx = 0usize;
@@ -206,13 +320,31 @@ mod tests {
     }
 
     #[test]
+    fn test_conv_same_preserves_size_identity_kernel() {
+        // 单通道 3×3，核中心为 1 → 恒等映射
+        let inp: Vec<f32> = (0..9).map(|i| i as f32).collect();
+        let mut w = vec![0.0f32; 9];
+        w[4] = 1.0;
+        let b = vec![0.0f32];
+        let out = conv2d_same(&inp, &w, &b, 1, 1, 3, 3);
+        assert_eq!(out, inp);
+    }
+
+    #[test]
+    fn test_maxpool_picks_max() {
+        let inp = vec![1.0, 5.0, 0.0, 3.0];
+        let out = maxpool2x2(&inp, 1, 2, 2);
+        assert_eq!(out, vec![5.0]);
+    }
+
+    #[test]
     fn test_model_loads_and_predicts() {
         let path = std::path::Path::new("models/sketch_classify.bin");
         if !path.exists() {
             eprintln!("skipping: model file not found");
             return;
         }
-        let model = MlWeights::load(path).expect("should load model");
+        let model = CnnWeights::load(path).expect("should load model");
         // 只验证模型可以完成推理，不验证结果（结果依赖训练数据质量）
         let (_idx, _conf) = model.predict(&make_line());
         let (_idx, _conf) = model.predict(&make_rect());

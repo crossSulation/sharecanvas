@@ -1,5 +1,6 @@
-scikit-learn
-skl2onnx
+torch
+onnxscript
 numpy
 requests
-onnxruntime
+onnx
+onnxsim

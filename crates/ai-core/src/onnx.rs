@@ -1,5 +1,5 @@
 use crate::{DetectedShape, Point};
-use crate::mlp::MlWeights;
+use crate::cnn::CnnWeights;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelStatus {
@@ -10,13 +10,13 @@ pub enum ModelStatus {
 }
 
 pub struct OnnxSession {
-    mlp: Option<MlWeights>,
+    cnn: Option<CnnWeights>,
     status: ModelStatus,
 }
 
 impl OnnxSession {
     pub fn new() -> Self {
-        Self { mlp: None, status: ModelStatus::NotLoaded }
+        Self { cnn: None, status: ModelStatus::NotLoaded }
     }
 
     pub fn status(&self) -> ModelStatus { self.status }
@@ -28,15 +28,15 @@ impl OnnxSession {
         let bin_path = parent.join("sketch_classify.bin");
 
         if bin_path.exists() {
-            match MlWeights::load(&bin_path) {
+            match CnnWeights::load(&bin_path) {
                 Ok(w) => {
-                    self.mlp = Some(w);
+                    self.cnn = Some(w);
                     self.status = ModelStatus::Ready;
                     return Ok(());
                 }
                 Err(e) => {
                     self.status = ModelStatus::Error;
-                    return Err(format!("Failed to load MLP weights: {}", e));
+                    return Err(format!("Failed to load CNN weights: {}", e));
                 }
             }
         }
@@ -50,8 +50,8 @@ impl OnnxSession {
     }
 
     pub fn classify_shape(&self, points: &[Point]) -> Result<Option<DetectedShape>, String> {
-        let mlp = self.mlp.as_ref().ok_or("MLP model not loaded")?;
-        let (idx, conf) = mlp.predict(points);
+        let cnn = self.cnn.as_ref().ok_or("CNN model not loaded")?;
+        let (idx, conf) = cnn.predict(points);
 
         let labels: [&str; 13] = [
             "ellipse", "rect", "line", "triangle", "arrow",
@@ -61,7 +61,7 @@ impl OnnxSession {
         let kind = labels.get(idx).copied().unwrap_or("rect");
 
         use crate::log_decision;
-        log_decision("mlp", "sketch", kind, conf as f64);
+        log_decision("cnn", "sketch", kind, conf as f64);
 
         let xs: Vec<f64> = points.iter().map(|p| p.x).collect();
         let ys: Vec<f64> = points.iter().map(|p| p.y).collect();

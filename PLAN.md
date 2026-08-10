@@ -110,10 +110,10 @@ classify_shape(points)
 ### ONNX 模型
 
 - 引擎：`tract-onnx`（纯 Rust，无需 Python 运行时）
-- 导出：`scripts/export_models.py` 使用 `uv` 隔离环境 (scikit-learn → ONNX)
+- 导出：`scripts/export_models.py` 使用 `uv` 隔离环境 (PyTorch 2D CNN → ONNX)
 - 缓存：QuickDraw 数据缓存到 `samples/*.npy`，避免重复下载
-- 标签：`SHAPE_LABELS` 10 类 (circle→ellipse, square→rect, line→line, triangle→triangle, arrow→arrow, diamond→diamond, star→star, parallelogram→parallelogram, hexagon→hexagon, trapezoid→trapezoid)
-- 模型大小：~136KB（MLP 200→128→64→10，34K 参数）
+- 标签：`SHAPE_LABELS` 13 类 (circle→ellipse, square→rect, line→line, triangle→triangle, arrow→arrow, diamond→diamond, star→star, parallelogram→parallelogram, hexagon→hexagon, trapezoid→trapezoid, pentagon, heptagon, octagon)
+- 模型大小：~134KB（2D CNN 16→32→32 conv + FC 64，约 33K 参数）
 - 日志：同时写入 logcat 和文件，通过 `set_log_hook` 回调统一输出
 
 ### 日志文件
@@ -172,7 +172,7 @@ classify_shape(points)
 
 - 风格迁移（style transfer）
 - 文字转图片（text-to-image）
-- ONNX 模型架构升级（1D CNN 替代 MLP）
+- ONNX 模型架构升级（2D CNN 替代 MLP，已完成）
 
 ---
 
