@@ -4,11 +4,30 @@ import type { Pt, Shape } from '../types'
 
 const CANVAS_W = 400
 const CANVAS_H = 400
+const TEMPLATE_SIZE = 0.6 // 参考模板最大边长占画布的比例
 
 const POLY_TEMPLATE_KINDS = ['triangle', 'trapezoid', 'pentagon', 'hexagon', 'heptagon', 'octagon', 'star', 'diamond', 'parallelogram']
 
-function toCanvasPt(p: Pt): Pt {
-  return { x: ((p.x + 1) / 2) * CANVAS_W, y: ((p.y + 1) / 2) * CANVAS_H }
+/** 归一化点 → 画布坐标：所有模板按最大边长统一缩放到画布中央（不沾满全画布） */
+function toCanvasTemplate(pts: Pt[]): Pt[] {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const p of pts) {
+    if (p.x < x0) x0 = p.x
+    if (p.y < y0) y0 = p.y
+    if (p.x > x1) x1 = p.x
+    if (p.y > y1) y1 = p.y
+  }
+  const span = Math.max(x1 - x0, y1 - y0, 1e-6)
+  const scale = (TEMPLATE_SIZE * CANVAS_W) / span
+  const cx = (x0 + x1) / 2
+  const cy = (y0 + y1) / 2
+  return pts.map((p) => ({
+    x: CANVAS_W / 2 + (p.x - cx) * scale,
+    y: CANVAS_H / 2 + (p.y - cy) * scale,
+  }))
 }
 
 function templateClosed(label: string): boolean {
@@ -55,7 +74,7 @@ function templateFor(label: string): Pt[] | null {
     return null
   }
   if (!pts.length) return null
-  return pts.map(toCanvasPt)
+  return toCanvasTemplate(pts)
 }
 
 interface Sample {
