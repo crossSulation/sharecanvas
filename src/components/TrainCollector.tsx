@@ -1,8 +1,62 @@
-import { useState, useRef, useCallback } from 'react'
-import type { Pt } from '../types'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { polygonPoints } from '../lib/layerRender'
+import type { Pt, Shape } from '../types'
 
 const CANVAS_W = 400
 const CANVAS_H = 400
+
+const POLY_TEMPLATE_KINDS = ['triangle', 'trapezoid', 'pentagon', 'hexagon', 'heptagon', 'octagon', 'star', 'diamond', 'parallelogram']
+
+function toCanvasPt(p: Pt): Pt {
+  return { x: ((p.x + 1) / 2) * CANVAS_W, y: ((p.y + 1) / 2) * CANVAS_H }
+}
+
+function templateClosed(label: string): boolean {
+  const key = label.trim().toLowerCase()
+  return POLY_TEMPLATE_KINDS.includes(key) || ['rect', 'square', 'roundrect', 'circle', 'ellipse', 'oval'].includes(key)
+}
+
+/** 根据标签返回画布坐标下的参考模板点（未知标签返回 null） */
+function templateFor(label: string): Pt[] | null {
+  const key = label.trim().toLowerCase()
+  const shape: Shape = { id: 'tpl', kind: 'diamond', x0: -1, y0: -1, x1: 1, y1: 1, color: '#000', size: 1 }
+  let pts: Pt[] = []
+  if (POLY_TEMPLATE_KINDS.includes(key)) {
+    shape.kind = key as Shape['kind']
+    pts = polygonPoints(shape)
+  } else if (key === 'rect' || key === 'square' || key === 'roundrect') {
+    pts = [
+      { x: -0.8, y: -0.6 },
+      { x: 0.8, y: -0.6 },
+      { x: 0.8, y: 0.6 },
+      { x: -0.8, y: 0.6 },
+    ]
+  } else if (key === 'circle' || key === 'ellipse' || key === 'oval') {
+    const n = 48
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2
+      pts.push({ x: 0.8 * Math.cos(a), y: 0.8 * Math.sin(a) })
+    }
+  } else if (key === 'line') {
+    pts = [
+      { x: -0.75, y: 0.1 },
+      { x: 0.75, y: -0.1 },
+    ]
+  } else if (key === 'arrow') {
+    pts = [
+      { x: -0.7, y: 0 },
+      { x: 0.45, y: 0 },
+      { x: 0.45, y: -0.18 },
+      { x: 0.7, y: 0 },
+      { x: 0.45, y: 0.18 },
+      { x: 0.45, y: 0 },
+    ]
+  } else {
+    return null
+  }
+  if (!pts.length) return null
+  return pts.map(toCanvasPt)
+}
 
 interface Sample {
   label: string
@@ -19,6 +73,7 @@ export default function TrainCollector() {
   const strokesRef = useRef<Pt[][]>([])
   const activeRef = useRef<Pt[]>([])
   const [strokeCount, setStrokeCount] = useState(0)
+  const [showTemplate, setShowTemplate] = useState(true)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2000) }
 
@@ -30,6 +85,27 @@ export default function TrainCollector() {
     ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
     ctx.fillStyle = '#ffffff'
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
+    // 参考模板：选中标签时显示淡色虚线轮廓，供描摹
+    if (showTemplate && label.trim()) {
+      const tpl = templateFor(label)
+      if (tpl && tpl.length > 1) {
+        ctx.save()
+        ctx.strokeStyle = 'rgba(59,130,246,0.45)'
+        ctx.lineWidth = 2
+        ctx.setLineDash([8, 6])
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.beginPath()
+        ctx.moveTo(tpl[0].x, tpl[0].y)
+        for (let i = 1; i < tpl.length; i++) ctx.lineTo(tpl[i].x, tpl[i].y)
+        if (templateClosed(label)) ctx.closePath()
+        ctx.stroke()
+        ctx.restore()
+        ctx.fillStyle = 'rgba(59,130,246,0.8)'
+        ctx.font = '12px ui-sans-serif, sans-serif'
+        ctx.fillText(`参考：${label.trim()}`, 10, 20)
+      }
+    }
     ctx.strokeStyle = '#18181b'
     ctx.lineWidth = 3
     ctx.lineCap = 'round'
@@ -56,7 +132,11 @@ export default function TrainCollector() {
         ctx.beginPath(); ctx.arc(pts[pts.length - 1]!.x, pts[pts.length - 1]!.y, 4, 0, Math.PI * 2); ctx.fill()
       }
     }
-  }, [])
+  }, [label, showTemplate])
+
+  useEffect(() => {
+    drawAll()
+  }, [drawAll])
 
   const toCanvas = (e: React.PointerEvent<HTMLCanvasElement>): Pt => {
     const r = canvasRef.current?.getBoundingClientRect()
@@ -195,6 +275,15 @@ export default function TrainCollector() {
           >
             撤销上笔
           </button>
+          <label className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-zinc-400">
+            <input
+              type="checkbox"
+              checked={showTemplate}
+              onChange={(e) => setShowTemplate(e.target.checked)}
+              className="rounded border-zinc-300"
+            />
+            参考线
+          </label>
         </div>
 
         <div className="mb-3 flex items-center gap-2">

@@ -49,11 +49,11 @@ describe('detectShape', () => {
     expect(detectShape(pts([[1, 1], [2, 1], [2, 2], [1, 2]]))).toBeNull()
   })
 
-  it('detects horizontal line as arrow', () => {
+  it('detects straight horizontal line as line (no arrowhead)', () => {
     const line = pts([[10, 50], [30, 50], [50, 50], [70, 50], [90, 50]])
     const result = detectShape(line)
     expect(result).not.toBeNull()
-    expect(result!.kind).toBe('arrow')
+    expect(result!.kind).toBe('line')
     expect(result!.confidence).toBeGreaterThan(0.85)
   })
 
