@@ -8,8 +8,8 @@ const TEMPLATE_SIZE = 0.6 // 参考模板最大边长占画布的比例
 
 const POLY_TEMPLATE_KINDS = ['triangle', 'trapezoid', 'pentagon', 'hexagon', 'heptagon', 'octagon', 'star', 'diamond', 'parallelogram']
 
-/** 归一化点 → 画布坐标：所有模板按最大边长统一缩放到画布中央（不沾满全画布） */
-function toCanvasTemplate(pts: Pt[]): Pt[] {
+/** 归一化点 → 画布坐标：按最大边长统一缩放居中，并绕画布中心旋转 angleDeg */
+function toCanvasTemplate(pts: Pt[], angleDeg: number): Pt[] {
   let x0 = Infinity
   let y0 = Infinity
   let x1 = -Infinity
@@ -22,12 +22,21 @@ function toCanvasTemplate(pts: Pt[]): Pt[] {
   }
   const span = Math.max(x1 - x0, y1 - y0, 1e-6)
   const scale = (TEMPLATE_SIZE * CANVAS_W) / span
-  const cx = (x0 + x1) / 2
-  const cy = (y0 + y1) / 2
-  return pts.map((p) => ({
-    x: CANVAS_W / 2 + (p.x - cx) * scale,
-    y: CANVAS_H / 2 + (p.y - cy) * scale,
-  }))
+  const pcx = (x0 + x1) / 2
+  const pcy = (y0 + y1) / 2
+  const cx = CANVAS_W / 2
+  const cy = CANVAS_H / 2
+  const rad = (angleDeg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  return pts.map((p) => {
+    const x = cx + (p.x - pcx) * scale
+    const y = cy + (p.y - pcy) * scale
+    return {
+      x: cx + (x - cx) * cos - (y - cy) * sin,
+      y: cy + (x - cx) * sin + (y - cy) * cos,
+    }
+  })
 }
 
 function templateClosed(label: string): boolean {
@@ -36,7 +45,7 @@ function templateClosed(label: string): boolean {
 }
 
 /** 根据标签返回画布坐标下的参考模板点（未知标签返回 null） */
-function templateFor(label: string): Pt[] | null {
+function templateFor(label: string, angleDeg: number): Pt[] | null {
   const key = label.trim().toLowerCase()
   const shape: Shape = { id: 'tpl', kind: 'diamond', x0: -1, y0: -1, x1: 1, y1: 1, color: '#000', size: 1 }
   let pts: Pt[] = []
@@ -74,7 +83,7 @@ function templateFor(label: string): Pt[] | null {
     return null
   }
   if (!pts.length) return null
-  return toCanvasTemplate(pts)
+  return toCanvasTemplate(pts, angleDeg)
 }
 
 interface Sample {
@@ -93,6 +102,7 @@ export default function TrainCollector() {
   const activeRef = useRef<Pt[]>([])
   const [strokeCount, setStrokeCount] = useState(0)
   const [showTemplate, setShowTemplate] = useState(true)
+  const [templateAngle, setTemplateAngle] = useState(0)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2000) }
 
@@ -106,7 +116,7 @@ export default function TrainCollector() {
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H)
     // 参考模板：选中标签时显示淡色虚线轮廓，供描摹
     if (showTemplate && label.trim()) {
-      const tpl = templateFor(label)
+      const tpl = templateFor(label, templateAngle)
       if (tpl && tpl.length > 1) {
         ctx.save()
         ctx.strokeStyle = 'rgba(59,130,246,0.45)'
@@ -151,7 +161,7 @@ export default function TrainCollector() {
         ctx.beginPath(); ctx.arc(pts[pts.length - 1]!.x, pts[pts.length - 1]!.y, 4, 0, Math.PI * 2); ctx.fill()
       }
     }
-  }, [label, showTemplate])
+  }, [label, showTemplate, templateAngle])
 
   useEffect(() => {
     drawAll()
@@ -267,7 +277,11 @@ export default function TrainCollector() {
           <label className="shrink-0 text-xs text-zinc-600">标签：</label>
           <input
             value={label}
-            onChange={(e) => setLabel(e.target.value)}
+            onChange={(e) => {
+              setLabel(e.target.value)
+              // 切换标签时重置模板角度
+              setTemplateAngle(0)
+            }}
             placeholder="rect / triangle / arrow …"
             className="min-w-0 flex-1 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs outline-none focus:border-zinc-500"
           />
@@ -293,6 +307,12 @@ export default function TrainCollector() {
             className="text-[10px] text-zinc-500 hover:text-red-500 disabled:opacity-30"
           >
             撤销上笔
+          </button>
+          <button
+            onClick={() => setTemplateAngle((a) => (a + 15) % 360)}
+            className="text-[10px] text-zinc-500 hover:text-blue-600"
+          >
+            旋转 15°
           </button>
           <label className="ml-auto flex cursor-pointer items-center gap-1 text-[10px] text-zinc-400">
             <input
