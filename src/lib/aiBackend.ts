@@ -5,6 +5,9 @@ import { createId } from './id'
 import { nextSeq } from './seq'
 import type { Pt } from '../types'
 
+// Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效，需使用本机数据服务地址
+const AI_BASE = import.meta.env.LOCAL_DATA_URL ?? ''
+
 interface BackendAI {
   beautify_stroke(args: { strokes: { x: number; y: number }[][] }): Promise<{
     points: { x: number; y: number }[]
@@ -29,7 +32,7 @@ export async function showLogPath() {
   }
 
   try {
-    const res = await fetch('/api/ai/log-path')
+    const res = await fetch(`${AI_BASE}/api/ai/log-path`)
     const { path } = await res.json()
     console.log('%c[AI] log file (server): %c%s', 'color:#a1a1aa', 'color:#22c55e', path || '(empty)')
   } catch {
@@ -53,7 +56,7 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
 
   if (typeof fetch !== 'undefined') {
     try {
-      const res = await fetch('/api/ai/beautify', {
+      const res = await fetch(`${AI_BASE}/api/ai/beautify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ points: [] }),
@@ -64,7 +67,7 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
           name: 'native-server',
           backend: {
             beautify_stroke: async (args) => {
-              const r = await fetch('/api/ai/beautify', {
+              const r = await fetch(`${AI_BASE}/api/ai/beautify`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(args),

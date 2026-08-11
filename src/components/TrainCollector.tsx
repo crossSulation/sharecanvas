@@ -237,7 +237,6 @@ export default function TrainCollector() {
       const ctx = c.getContext('2d')
       if (ctx) { ctx.clearRect(0, 0, CANVAS_W, CANVAS_H); ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H) }
     }
-    flash(`已保存 ${label.trim()}（共 ${samples.length + 1} 条）`)
   }
 
   const handleSubmit = async () => {
@@ -247,7 +246,7 @@ export default function TrainCollector() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isTauri = !!(window as any).__TAURI_INTERNALS__
       // Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效
-      const base = isTauri ? 'http://192.168.1.3:5173' : ''
+      const base = isTauri ? (import.meta.env.LOCAL_DATA_URL ?? '') : ''
       const res = await fetch(`${base}/api/train/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
