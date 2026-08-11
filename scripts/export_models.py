@@ -329,7 +329,7 @@ def load_real_samples(label, train_dir="train_data"):
     path = os.path.join(train_dir, f"{label}.jsonl")
     if not os.path.exists(path):
         return None
-    all_samples = []
+    all_bitmaps = []
     with open(path) as f:
         for line in f:
             try:
@@ -337,18 +337,17 @@ def load_real_samples(label, train_dir="train_data"):
                 strokes = entry.get("strokes", [entry.get("points", [])])
                 stroke_pairs = []
                 for st in strokes:
-                    for pt in st:
-                        stroke_pairs.extend([pt["x"], pt["y"]])
-                if len(stroke_pairs) >= 4:
-                    t = np.linspace(0, 1, MAX_POINTS * 2)
-                    idx = (t * (len(stroke_pairs) // 2 - 1)).astype(int) * 2
-                    sampled = np.array([stroke_pairs[j] for j in idx], dtype=np.float32)
-                    all_samples.append(sampled)
+                    pairs = [(st[j]["x"], st[j]["y"]) for j in range(len(st))]
+                    if pairs:
+                        stroke_pairs.append(pairs)
+                if stroke_pairs:
+                    bm = stroke_to_bitmap(stroke_pairs)
+                    all_bitmaps.append(bm)
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
-    if not all_samples:
+    if not all_bitmaps:
         return None
-    return np.array(all_samples, dtype=np.float32)
+    return np.array(all_bitmaps, dtype=np.float32)
 
 
 class SketchCNN(nn.Module):
