@@ -146,12 +146,27 @@ classify_shape(points)
 
 现状（2026-08-11）：已收集 hexagon（145）、octagon（102）、triangle（523）、line（211）真实手绘数据并重训；1779 例识别测试整体 94.5%（Rust 生产路径）。真实数据识别率：hexagon 100%、octagon 99%、triangle 100%、line 100%、trapezoid 99%、rect 79%。剩余短板：rect 真实数据（~79%，含标注质量问题）、parallelogram/diamond 无真实数据（合成 65%~73%）、QuickDraw 留出集 hexagon 62% / octagon 56%（QuickDraw 数据粗糙，实际手绘 99%+）。
 
+**当前识别结果（2026-08-11）**
+
+| 类别 | 真实数据量 | 真实数据识别率 | 备注 |
+|------|-----------|---------------|------|
+| hexagon | 145 | 100% | QuickDraw 留出集 62% |
+| octagon | 102 | 99% | QuickDraw 留出集 56% |
+| triangle | 523 | 100% | 三笔画画法已修复 |
+| line | 211 | 100% | |
+| trapezoid | 116 | 99% | |
+| rect | 162 | 79% | 26 条被判梯形，待复查标注 |
+| parallelogram | 0 | 65%（合成） | 待收集真实数据 |
+| diamond | 0 | 73%（合成） | 待收集真实数据 |
+
+全量 1779 例（真实 6 类全量 + 合成 13 类 ×40）整体 **94.5%**（Rust 生产路径）。
+
 **数据采集优先级**
 
-- P0：hexagon、octagon —— 各收集 200+ 条真实手绘（当前最弱，QuickDraw 数据粗糙且互相混淆）
-- P0：复查 rect 标注 —— 手绘矩形常被判为 trapezoid/parallelogram，疑似存在标注与形状不符的脏样本
-- P1：parallelogram、diamond —— 各收集 100~200 条（合成识别率仅 80~87%）
-- P2：其余类合成/QuickDraw 已 95%+，按需补充
+- [x] P0：hexagon、octagon —— 已收集（145 / 102 条）并重训，真实数据识别 100% / 99%
+- [ ] P0：复查 rect 标注 —— 手绘矩形常被判为 trapezoid/parallelogram（当前真实 rect 79%），用 `preview_training_data.py` 清理脏样本
+- [ ] P1：parallelogram、diamond —— 各收集 100~200 条（合成识别率仅 65%~73%）
+- [ ] P2：其余类合成/QuickDraw 已 95%+，按需补充
 - 目标：每类 200~500 条真实数据即可明显超过合成 + QuickDraw 的效果
 
 **训练侧小杠杆（次要）**
@@ -208,7 +223,7 @@ classify_shape(points)
 - [x] 合成生成器修复：清除 (0,0) 残留点（triangle/hexagon/heptagon/octagon 的内部假线）；三角形顶点随机化（宽/高/偏移）；按角点 40% 概率拆成 2~3 笔；固定随机种子便于复现
 - [x] 新增识别测试工具 `recognize_test.rs`（801 例：真实 rect/trapezoid 全量 + 13 类合成各 40 例），与 Python 推理逐条一致
 - [x] 识别结果：801 例 87.0%；三角形三笔画法 36% → 100%；trapezoid 97.4%；rect ~66%；hexagon/octagon QuickDraw 留出集 ~56% / ~55%（仍最弱，待收集真实数据）
-- [x] 2026-08-11：收集 hexagon/octagon/triangle/line 真实数据并重训，1779 例整体 94.5%（hexagon 98.9%、octagon 95.1%、line 100%、triangle 96.8%、rect 81.2%）；恢复被 merge 覆盖的位图版 `load_real_samples`（重采样 100 点坐标的版本与位图训练管线不兼容）
+- [x] 2026-08-11（commit `ce3405b`）：收集 hexagon/octagon/triangle/line 真实数据并重训；1779 例整体 94.5%，真实数据识别率 hexagon 100%、octagon 99%、triangle 100%、line 100%、trapezoid 99%、rect 79%；恢复被 merge 覆盖的位图版 `load_real_samples`（重采样 100 点坐标的版本与位图训练管线不兼容）
 - [x] 环境：本机安装 rustup 1.97.1（MSVC）+ Python 3.14 + torch 2.13 + Pillow；`npm run ai:test` 可回归
 
 **导出与渲染（L6/L7）**
