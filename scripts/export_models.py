@@ -13,6 +13,7 @@ import math
 import os
 import struct
 import sys
+import zlib
 
 import numpy as np
 import requests
@@ -437,11 +438,13 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.output, exist_ok=True)
 
-    rng = np.random.default_rng(42)
     train_X, train_y = [], []
     val_X, val_y = [], []
     test_bitmaps, test_strokes = {}, {}
     for i, label in enumerate(LABELS):
+        # 每个类别用独立随机种子划分 train/val/test：某一类的数据量变化不会打乱其他类别的留出测试集，
+        # 跨版本对比准确率时才公平
+        rng = np.random.default_rng(zlib.crc32(label.encode("utf-8")))
         if args.real:
             data = download_quickdraw(QUICKDRAW_ALIASES.get(label, label), args.samples)
             if data is not None:
