@@ -64,17 +64,17 @@ export default function TopBar() {
 
   return (
     <header
-      className="z-30 flex h-12 sm:h-14 shrink-0 items-center gap-1.5 sm:gap-3 border-b border-zinc-200 bg-white/90 p-2 sm:p-4 backdrop-blur"
+      className="z-30 flex h-12 xl:h-14 shrink-0 items-center gap-1.5 xl:gap-3 border-b border-zinc-200 bg-white/90 p-2 xl:p-4 backdrop-blur"
     >
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-sm font-black text-white">
         {t('app.title').charAt(0)}
       </div>
-      <div className="mr-2 hidden sm:block">
+      <div className="mr-2 hidden xl:block">
         <h1 className="text-sm font-semibold leading-tight text-zinc-900">{t('app.title')}</h1>
         <p className="text-[10px] leading-tight text-zinc-400">{t('app.subtitle')}</p>
       </div>
 
-      <div className="hidden sm:flex items-center rounded-lg border border-zinc-200 bg-zinc-100 p-0.5">
+      <div className="hidden xl:flex items-center rounded-lg border border-zinc-200 bg-zinc-100 p-0.5">
         {VIEWS.map((v) => (
           <button
             key={v.id}
@@ -88,7 +88,7 @@ export default function TopBar() {
         ))}
       </div>
 
-      <div className="ml-1 flex items-center gap-0.5 sm:gap-1">
+      <div className="ml-1 flex items-center gap-0.5 xl:gap-1">
         <button
           data-testid="layer-toggle"
           onClick={() => setLayerPanelOpen(!layerPanelOpen)}
@@ -116,14 +116,14 @@ export default function TopBar() {
         </button>
         <button onClick={() => { if (hasContent && window.confirm(t('actions.confirmClearScreen'))) clearScreen() }}
           disabled={!hasContent} title={t('actions.clearScreen')}
-          className="hidden sm:flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-red-500 disabled:opacity-30">
+          className="hidden xl:flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-red-500 disabled:opacity-30">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="2" y="4" width="20" height="14" rx="2" /><path d="M8 21h8" /><path d="M12 17.5V21" /><path d="m9.5 9.5 5 5" /><path d="m14.5 9.5-5 5" />
           </svg>
         </button>
         <button onClick={() => { if (hasContent && window.confirm(t('actions.confirmClearAll'))) clearAll() }}
           disabled={!hasContent} title={t('actions.clearAll')}
-          className="hidden sm:flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-red-500 disabled:opacity-30">
+          className="hidden xl:flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 transition-colors hover:bg-zinc-100 hover:text-red-500 disabled:opacity-30">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
           </svg>
@@ -143,21 +143,21 @@ export default function TopBar() {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
         </svg>
-        <span className="hidden sm:inline">训练</span>
+        <span className="hidden xl:inline">训练</span>
       </button>
 
       {penDetected && (
         <div data-testid="pen-indicator"
-          className="hidden items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 sm:px-3 py-1 text-xs text-zinc-500 md:flex"
+          className="hidden items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2 xl:px-3 py-1 text-xs text-zinc-500 xl:flex"
           title={t('status.penConnected')}>
           <span className="h-1.5 w-1.5 rounded-full bg-zinc-900" />
-          <span className="hidden sm:inline">{t('status.penConnected')}</span>
+          <span className="hidden xl:inline">{t('status.penConnected')}</span>
         </div>
       )}
 
       {!isTauriApp && (
       <div data-testid="room-status"
-        className={`hidden items-center gap-1.5 rounded-full border px-2 sm:px-3 py-1 text-xs md:flex ${
+        className={`hidden items-center gap-1.5 rounded-full border px-2 xl:px-3 py-1 text-xs xl:flex ${
           wsStatus === 'online' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
           : wsStatus === 'connecting' ? 'border-amber-200 bg-amber-50 text-amber-700'
           : 'border-zinc-200 bg-zinc-50 text-zinc-500'
@@ -165,7 +165,7 @@ export default function TopBar() {
         <span className={`h-1.5 w-1.5 rounded-full ${
           wsStatus === 'online' ? 'bg-emerald-500' : wsStatus === 'connecting' ? 'animate-pulse bg-amber-500' : 'bg-zinc-400'
         }`} />
-        <span className="hidden sm:inline">
+        <span className="hidden xl:inline">
           {wsStatus === 'online' && room
             ? otherUsers > 0
               ? `${t('status.room')} ${room}`
@@ -209,15 +209,15 @@ export default function TopBar() {
 
       {!isTauriApp && (
       <button data-testid="share-open" onClick={() => setShareOpen(true)}
-        className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 sm:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700">
+        className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-2.5 xl:px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" />
         </svg>
-        <span className="hidden sm:inline">{t('app.share')}</span>
+        <span className="hidden xl:inline">{t('app.share')}</span>
       </button>
       )}
 
-      <div className="relative sm:hidden">
+      <div className="relative xl:hidden">
         <button onClick={() => setMenuOpen(!menuOpen)} title={t('tools.more')}
           className={`flex h-8 w-8 items-center justify-center rounded-md transition-colors ${menuOpen ? 'bg-zinc-200 text-zinc-900' : 'text-zinc-600 hover:bg-zinc-100'}`}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

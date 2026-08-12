@@ -328,9 +328,9 @@ function MobileToolbar() {
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex w-full flex-col items-center gap-1.5">
       {expanded && (
-        <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-2 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain">
+        <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-2 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain">
           <div className="flex items-center gap-0.5">
             {PALETTE.map((c) => (
               <button
@@ -369,7 +369,7 @@ function MobileToolbar() {
           <input type="range" min={2} max={40} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-16" title="笔刷大小" />
         </div>
       )}
-      <div className="pointer-events-auto flex flex-nowrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain
+      <div className="pointer-events-auto flex max-w-full flex-nowrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain
         [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {TOOLS.map((t) => {
           if (t.id === 'select') {
@@ -470,9 +470,9 @@ export default function Toolbar() {
 
   return (
     <div className="no-select pointer-events-none z-20 flex flex-col items-start gap-2
-      fixed bottom-0 left-0 right-0 sm:bottom-5 sm:left-4 sm:right-auto
-      w-full px-2 pb-2 sm:w-fit sm:px-0 sm:pb-0
-      max-w-[100vw] sm:max-w-none
+      fixed bottom-0 left-0 right-0 xl:bottom-5 xl:left-4 xl:right-auto
+      w-full px-2 pb-2 xl:w-fit xl:px-0 xl:pb-0
+      max-w-[100vw] xl:max-w-none
     ">
       {isMobile ? <MobileToolbar /> : <DesktopToolbar />}
     </div>
