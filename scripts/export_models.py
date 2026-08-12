@@ -24,7 +24,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
-LABELS = ["circle", "square", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
+# 类别顺序必须与 crates/ai-core/src/onnx.rs 的 labels 完全一致
+LABELS = ["ellipse", "rect", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
+# QuickDraw 没有 rect/ellipse 类别，用语义相近的 square/circle 数据
+QUICKDRAW_ALIASES = {"ellipse": "circle", "rect": "square"}
 MAX_POINTS = 100
 IMG_SIZE = 28
 CACHE_DIR = "samples"
@@ -163,16 +166,16 @@ def gen_synthetic_bitmap_samples(label, n=2000):
     return result
 
 
-def gen_circle():
+def gen_ellipse():
     pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
     t = np.linspace(0, 2 * np.pi, MAX_POINTS)
-    r = np.random.uniform(0.3, 0.8)
-    pts[:, 0] = r * np.cos(t)
-    pts[:, 1] = r * np.sin(t)
+    rx, ry = np.random.uniform(0.3, 0.8, 2)
+    pts[:, 0] = rx * np.cos(t)
+    pts[:, 1] = ry * np.sin(t)
     return pts.flatten()
 
 
-def gen_square():
+def gen_rect():
     pts = np.zeros((MAX_POINTS, 2), dtype=np.float32)
     w, h = np.random.uniform(0.3, 0.8, 2)
     s = [(w, h), (-w, h), (-w, -h), (w, -h)]
@@ -313,7 +316,7 @@ def gen_polygon(sides):
 
 
 GENERATORS = {
-    "circle": gen_circle, "square": gen_square, "line": gen_line,
+    "ellipse": gen_ellipse, "rect": gen_rect, "line": gen_line,
     "triangle": gen_triangle, "arrow": gen_arrow,
     "diamond": gen_diamond, "star": gen_star,
     "parallelogram": gen_parallelogram, "hexagon": gen_hexagon,
@@ -325,11 +328,12 @@ GENERATORS = {
 
 
 def load_real_samples(label, train_dir="train_data"):
-    """从 train_data/{label}.jsonl 加载手绘数据，渲染为 28×28 位图"""
+    """从 train_data/{label}.jsonl 加载手绘数据，渲染为 28×28 位图。
+    返回 (位图数组, 对应笔画列表)；无数据时返回 (None, None)。"""
     path = os.path.join(train_dir, f"{label}.jsonl")
     if not os.path.exists(path):
-        return None
-    all_bitmaps = []
+        return None, None
+    all_bitmaps, all_entries = [], []
     with open(path) as f:
         for line in f:
             try:
@@ -343,11 +347,12 @@ def load_real_samples(label, train_dir="train_data"):
                 if stroke_pairs:
                     bm = stroke_to_bitmap(stroke_pairs)
                     all_bitmaps.append(bm)
+                    all_entries.append(stroke_pairs)
             except (json.JSONDecodeError, KeyError, IndexError):
                 continue
     if not all_bitmaps:
-        return None
-    return np.array(all_bitmaps, dtype=np.float32)
+        return None, None
+    return np.array(all_bitmaps, dtype=np.float32), all_entries
 
 
 class SketchCNN(nn.Module):
@@ -427,55 +432,70 @@ def main():
     parser.add_argument("--samples", type=int, default=2000)
     parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch", type=int, default=128)
+    parser.add_argument("--test-per-class", type=int, default=20,
+                        help="每类留出的真实测试样本数上限（在过采样之前划分）")
     args = parser.parse_args()
     os.makedirs(args.output, exist_ok=True)
 
-    X_list, y_list = [], []
+    rng = np.random.default_rng(42)
+    train_X, train_y = [], []
+    val_X, val_y = [], []
+    test_bitmaps, test_strokes = {}, {}
     for i, label in enumerate(LABELS):
         if args.real:
-            data = download_quickdraw(label, args.samples)
+            data = download_quickdraw(QUICKDRAW_ALIASES.get(label, label), args.samples)
             if data is not None:
                 # QuickDraw: 28×28 位图 → (N, 1, 28, 28)
                 pts = data.reshape(len(data), 1, IMG_SIZE, IMG_SIZE).astype(np.float32) / 255.0
-                X_list.append(pts)
-                y_list.extend([i] * len(pts))
+                idx = rng.permutation(len(pts))
+                split = int(len(pts) * 0.9)
+                train_X.append(pts[idx[:split]])
+                train_y.extend([i] * split)
+                val_X.append(pts[idx[split:]])
+                val_y.extend([i] * (len(pts) - split))
             else:
                 print(f"  {label}: QuickDraw not available")
 
         # 始终加入合成数据：应用实际笔迹是细线风格（1px + 0.5 邻域），
         # 而 QuickDraw 是粗笔画位图；只学一种风格会导致另一种完全不识别。
         synth = gen_synthetic_bitmap_samples(label, 2000).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
-        X_list.append(synth)
-        y_list.extend([i] * len(synth))
+        idx = rng.permutation(len(synth))
+        split = int(len(synth) * 0.9)
+        train_X.append(synth[idx[:split]])
+        train_y.extend([i] * split)
+        val_X.append(synth[idx[split:]])
+        val_y.extend([i] * (len(synth) - split))
 
-        # 加载手绘训练数据，真实数据少时加大过采样
-        real = load_real_samples(label)
+        # 手绘数据：在过采样之前按 train/val/test 划分，test 完全不出现在训练中
+        real, entries = load_real_samples(label)
         if real is not None and len(real) > 0:
-            print(f"  {label}: {len(real)} real hand-drawn samples loaded (oversampled 5x)")
-            oversampled = np.tile(real, (5, 1)).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
-            X_list.append(oversampled)
-            y_list.extend([i] * len(oversampled))
+            n = len(real)
+            idx = rng.permutation(n)
+            if n < 4:
+                n_test, n_val = 0, 0
+            else:
+                n_test = min(max(1, int(round(n * 0.1))), args.test_per_class, n // 2)
+                n_val = min(max(1, int(round(n * 0.1))), max(0, n - n_test - 1))
+            tr_idx = idx[n_test + n_val:]
+            va_idx = idx[n_test:n_test + n_val]
+            te_idx = idx[:n_test]
+            print(f"  {label}: {n} real -> train {len(tr_idx)} / val {len(va_idx)} / test {len(te_idx)} (train oversampled 5x)")
+            if len(tr_idx) > 0:
+                oversampled = np.tile(real[tr_idx], (5, 1)).reshape(-1, 1, IMG_SIZE, IMG_SIZE)
+                train_X.append(oversampled)
+                train_y.extend([i] * len(oversampled))
+            if len(va_idx) > 0:
+                val_X.append(real[va_idx].reshape(-1, 1, IMG_SIZE, IMG_SIZE))
+                val_y.extend([i] * len(va_idx))
+            if len(te_idx) > 0:
+                test_bitmaps[label] = real[te_idx]
+                test_strokes[label] = [entries[j] for j in te_idx]
 
-    X = np.concatenate(X_list, axis=0).astype(np.float32)
-    y = np.array(y_list)
-    print(f"\nTraining data: {len(X)} samples, {len(set(y))} classes, shape {X.shape}")
-
-    # 按类别分层划分 train/val（90/10）
-    rng = np.random.default_rng(42)
-    train_idx, val_idx = [], []
-    for c in np.unique(y):
-        idx = np.where(y == c)[0]
-        rng.shuffle(idx)
-        split = int(len(idx) * 0.9)
-        train_idx.extend(idx[:split])
-        val_idx.extend(idx[split:])
-    train_idx = np.array(train_idx)
-    val_idx = np.array(val_idx)
-
-    X_t = torch.from_numpy(X[train_idx])
-    y_t = torch.from_numpy(y[train_idx].astype(np.int64))
-    X_v = torch.from_numpy(X[val_idx])
-    y_v = torch.from_numpy(y[val_idx].astype(np.int64))
+    X_t = torch.from_numpy(np.concatenate(train_X, axis=0).astype(np.float32))
+    y_t = torch.from_numpy(np.array(train_y, dtype=np.int64))
+    X_v = torch.from_numpy(np.concatenate(val_X, axis=0).astype(np.float32))
+    y_v = torch.from_numpy(np.array(val_y, dtype=np.int64))
+    print(f"\nTraining data: {len(X_t)} samples, {len(set(train_y))} classes; val {len(X_v)}; shape {X_t.shape}")
 
     torch.manual_seed(42)
     model = SketchCNN()
@@ -520,6 +540,35 @@ def main():
     for c in np.unique(y_v_np):
         mask = y_v_np == c
         print(f"  {LABELS[c]:<12} {np.mean(val_out[mask] == c):.1%}")
+
+    # 留出真实测试集（过采样前划分，训练时完全未见过）
+    if test_bitmaps:
+        te_X_list, te_y_list = [], []
+        for i, label in enumerate(LABELS):
+            if label not in test_bitmaps:
+                continue
+            bms = test_bitmaps[label].reshape(-1, 1, IMG_SIZE, IMG_SIZE)
+            te_X_list.append(torch.from_numpy(bms))
+            te_y_list.extend([i] * len(bms))
+        X_te = torch.cat(te_X_list)
+        y_te = torch.tensor(te_y_list, dtype=torch.int64)
+        with torch.no_grad():
+            te_out = model(X_te).argmax(1).numpy()
+        y_te_np = y_te.numpy()
+        te_acc = (te_out == y_te_np).mean()
+        print(f"\nHeld-out real test accuracy: {te_acc:.1%} ({len(y_te_np)} samples)")
+        for i, label in enumerate(LABELS):
+            if label not in test_bitmaps:
+                continue
+            mask = y_te_np == i
+            if mask.sum() > 0:
+                print(f"  {label:<12} {np.mean(te_out[mask] == i):.1%} ({mask.sum()})")
+        test_path = os.path.join(args.output, "real_test.jsonl")
+        with open(test_path, "w", encoding="utf-8") as f:
+            for label in LABELS:
+                for st in test_strokes.get(label, []):
+                    f.write(json.dumps({"label": label, "strokes": st}) + "\n")
+        print(f"Saved held-out test set: {test_path}")
 
     bin_path = os.path.join(args.output, "sketch_classify.bin")
     save_bin(model, bin_path)

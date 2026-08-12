@@ -25,6 +25,7 @@
     "native:build": "cd native && napi build --platform --release --js index.js",
     "ai:check": "cd crates/ai-core && cargo check",
     "ai:test": "cd crates/ai-core && cargo test",
+    "ai:eval-real": "uv run python scripts/gen_test_cases.py --input models/real_test.jsonl --output crates/ai-core/test_cases.txt && cd crates/ai-core && cargo run --offline --example recognize_test -- test_cases.txt",
     "models:export": "test -d .venv || uv venv --python 3.11 && uv pip install -r scripts/requirements.txt && uv run python scripts/export_models.py --output models/ --real",
     "preview": "vite preview",
     "start": "node --env-file-if-exists=.env server/index.js",
