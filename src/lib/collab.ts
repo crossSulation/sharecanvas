@@ -10,7 +10,24 @@ export interface CollabHandlers {
   onError(msg: string): void
 }
 
-const WS_BASE = `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.host}/ws`
+function resolveWsBase(): string {
+  // Tauri WebView 把页面 origin 改写为 tauri.localhost，直接用 location.host 连不上；
+  // 移动端/桌面 Tauri 优先使用 LOCAL_DATA_URL（本机数据服务地址），浏览器环境回退到当前 host
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isTauri = !!(window as any).__TAURI_INTERNALS__
+  const localBase = import.meta.env.LOCAL_DATA_URL as string | undefined
+  if (isTauri && localBase) {
+    try {
+      const u = new URL(localBase)
+      return `${u.protocol === 'https:' ? 'wss:' : 'ws:'}//${u.host}/ws`
+    } catch {
+      /* LOCAL_DATA_URL 格式不合法时忽略 */
+    }
+  }
+  return `${window.location.protocol === 'https:' ? 'wss://' : 'ws://'}${window.location.host}/ws`
+}
+
+const WS_BASE = resolveWsBase()
 
 class Collab {
   private provider: WebsocketProvider | null = null
@@ -179,10 +196,11 @@ class Collab {
 
   private connectWebRTC(room: string): void {
     this.disconnectWebRTC()
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${location.host}/ws/${encodeURIComponent(room)}?rtc=1`
+    const wsUrl = `${WS_BASE}/${encodeURIComponent(room)}?rtc=1`
     const ws = new WebSocket(wsUrl)
     this.webrtcSocket = ws
+    ws.onopen = () => console.log('[collab] rtc socket open', wsUrl)
+    ws.onerror = () => console.error('[collab] rtc socket error', wsUrl)
     ws.onmessage = (e) => {
       if (typeof e.data === 'string') {
         try {

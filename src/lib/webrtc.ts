@@ -8,25 +8,58 @@ interface PeerData {
   makingOffer: boolean
 }
 
+interface RTCSignal {
+  type: string
+  sdp?: RTCSessionDescriptionInit
+  candidate?: RTCIceCandidateInit
+}
+
 const peers = new Map<string, PeerData>()
 let localStream: MediaStream | null = null
 let subscribers: (() => void)[] = []
-let unsubRTC: (() => void) | null = null
+let callInterval: ReturnType<typeof setInterval> | null = null
+let incomingFrom: string | null = null
+let pendingOffer: RTCSessionDescriptionInit | null = null
 
 export function getLocalStream() { return localStream }
 export function getRemoteStreams(): Record<string, MediaStream> {
-  const out: Record<string, MediaStream> = {}
-  peers.forEach(() => {
-    // remote streams are attached via ontrack
-  })
-  return out
+  // remote streams are attached via ontrack
+  return {}
 }
+export function isCallActive() { return !!localStream }
+export function getIncomingFrom() { return incomingFrom }
 
 function notify() { subscribers.forEach((fn) => fn()) }
-export function subscribe(fn: () => void) { subscribers.push(fn); return () => { subscribers = subscribers.filter((f) => f !== fn) } }
+export function subscribe(fn: () => void) {
+  subscribers.push(fn)
+  return () => { subscribers = subscribers.filter((f) => f !== fn) }
+}
 
 function sendSignal(to: string, data: unknown) {
   collab.sendWebRTC(to, data)
+}
+
+function makePeer(from: string, stream: MediaStream): PeerData {
+  const pc = new RTCPeerConnection(STUN)
+  const peer: PeerData = { pc, makingOffer: false }
+  peers.set(from, peer)
+  pc.ontrack = () => notify()
+  pc.onicecandidate = (e) => {
+    if (e.candidate) sendSignal(from, { type: 'ice', candidate: e.candidate })
+  }
+  pc.onnegotiationneeded = async () => {
+    peer.makingOffer = true
+    try {
+      await pc.setLocalDescription()
+      sendSignal(from, { type: 'offer', sdp: pc.localDescription })
+    } catch {
+      /* ignore */
+    } finally {
+      peer.makingOffer = false
+    }
+  }
+  stream.getTracks().forEach((t) => pc.addTrack(t, stream))
+  return peer
 }
 
 export async function startCall(): Promise<MediaStream | null> {
@@ -34,17 +67,8 @@ export async function startCall(): Promise<MediaStream | null> {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
     notify()
-
-    unsubRTC = collab.onWebRTC((msg) => {
-      handleSignal(msg.from, msg.data as RTCSignal)
-    })
-
+    callInterval = setInterval(checkNewUsers, 3000)
     setTimeout(() => checkNewUsers(), 500)
-
-    const interval = setInterval(checkNewUsers, 3000)
-    const origUnsub = unsubRTC
-    unsubRTC = () => { origUnsub(); clearInterval(interval) }
-
     return localStream
   } catch (err) {
     console.error('getUserMedia failed:', err)
@@ -57,9 +81,10 @@ export function stopCall() {
   localStream = null
   peers.forEach((p) => p.pc.close())
   peers.clear()
-  unsubRTC?.()
-  unsubRTC = null
-  subscribers = []
+  if (callInterval) {
+    clearInterval(callInterval)
+    callInterval = null
+  }
   notify()
 }
 
@@ -77,7 +102,49 @@ export function toggleLocalVideo() {
   return enabled
 }
 
-export function isCallActive() { return !!localStream }
+// 接听来电：开启本端媒体流，并用暂存的 offer 完成协商
+export async function acceptIncomingCall(): Promise<boolean> {
+  const from = incomingFrom
+  const offer = pendingOffer
+  if (!from || !offer) return false
+  incomingFrom = null
+  pendingOffer = null
+  notify()
+  const stream = await startCall()
+  if (!stream) return false
+  let peer = peers.get(from)
+  if (!peer) {
+    peer = makePeer(from, stream)
+  } else {
+    stream.getTracks().forEach((t) => peer!.pc.addTrack(t, stream))
+  }
+  const { pc } = peer
+  try {
+    if (pc.signalingState === 'stable' || pc.signalingState === 'have-local-offer') {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer))
+    }
+    await pc.setLocalDescription()
+    sendSignal(from, { type: 'answer', sdp: pc.localDescription })
+    return true
+  } catch (err) {
+    console.error('accept call error:', err)
+    return false
+  }
+}
+
+export function declineIncomingCall() {
+  const from = incomingFrom
+  incomingFrom = null
+  pendingOffer = null
+  if (from) {
+    const peer = peers.get(from)
+    if (peer) {
+      peer.pc.close()
+      peers.delete(from)
+    }
+  }
+  notify()
+}
 
 function checkNewUsers() {
   if (!localStream) return
@@ -86,29 +153,7 @@ function checkNewUsers() {
 
   for (const user of allUsers) {
     if (!peers.has(user.id)) {
-      const pc = new RTCPeerConnection(STUN)
-      const peer: PeerData = { pc, makingOffer: false }
-      peers.set(user.id, peer)
-
-      localStream.getTracks().forEach((t) => pc.addTrack(t, localStream!))
-
-      pc.ontrack = () => notify()
-
-      pc.onicecandidate = (e) => {
-        if (e.candidate) sendSignal(user.id, { type: 'ice', candidate: e.candidate })
-      }
-
-      pc.onnegotiationneeded = async () => {
-        peer.makingOffer = true
-        try {
-          await pc.setLocalDescription()
-          sendSignal(user.id, { type: 'offer', sdp: pc.localDescription })
-        } catch {
-          /* ignore */
-        } finally {
-          peer.makingOffer = false
-        }
-      }
+      makePeer(user.id, localStream)
     }
   }
 
@@ -121,43 +166,21 @@ function checkNewUsers() {
   }
 }
 
-interface RTCSignal {
-  type: string
-  sdp?: RTCSessionDescriptionInit
-  candidate?: RTCIceCandidateInit
-}
-
 async function handleSignal(from: string, data: RTCSignal) {
-  let peer = peers.get(from)
-  if (!peer) {
-    const pc = new RTCPeerConnection(STUN)
-    peer = { pc, makingOffer: false }
-    peers.set(from, peer)
-
-    if (localStream) {
-      const ls = localStream
-      localStream.getTracks().forEach((t) => pc.addTrack(t, ls))
+  // 本端未开启通话：收到 offer 视为来电，暂存并通知 UI，等待用户接听
+  if (!localStream) {
+    if (data.type === 'offer' && data.sdp && !incomingFrom) {
+      incomingFrom = from
+      pendingOffer = data.sdp
+      notify()
     }
-
-    pc.ontrack = () => notify()
-
-    pc.onicecandidate = (e) => {
-      if (e.candidate) sendSignal(from, { type: 'ice', candidate: e.candidate })
-    }
-
-    pc.onnegotiationneeded = async () => {
-      peer!.makingOffer = true
-      try {
-        await pc.setLocalDescription()
-        sendSignal(from, { type: 'offer', sdp: pc.localDescription })
-      } catch {
-        /* ignore */
-      } finally {
-        peer!.makingOffer = false
-      }
-    }
+    return
   }
 
+  let peer = peers.get(from)
+  if (!peer) {
+    peer = makePeer(from, localStream)
+  }
   const { pc } = peer
   try {
     if (data.type === 'offer') {
@@ -177,3 +200,8 @@ async function handleSignal(from: string, data: RTCSignal) {
     console.error('signal error:', err)
   }
 }
+
+// 常驻信令订阅：不依赖本端是否已开启通话，保证其他成员的来电/信令都能收到
+collab.onWebRTC((msg) => {
+  handleSignal(msg.from, msg.data as RTCSignal)
+})

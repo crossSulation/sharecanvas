@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useStore } from '../store'
 import { useTranslation } from 'react-i18next'
-import { startCall, stopCall, toggleLocalAudio, toggleLocalVideo, isCallActive, subscribe } from '../lib/webrtc'
+import {
+  startCall, stopCall, toggleLocalAudio, toggleLocalVideo,
+  isCallActive, subscribe, getIncomingFrom, acceptIncomingCall, declineIncomingCall,
+} from '../lib/webrtc'
 
 let isTauriApp = false
 try {
@@ -40,12 +43,14 @@ export default function TopBar() {
   const otherUsers = Object.values(users).filter((u) => u.id !== selfId).length
   const [menuOpen, setMenuOpen] = useState(false)
   const [callActive, setCallActive] = useState(false)
+  const [incomingFrom, setIncomingFrom] = useState<string | null>(null)
   const [audioOn, setAudioOn] = useState(true)
   const [videoOn, setVideoOn] = useState(true)
 
   useEffect(() => {
     return subscribe(() => {
       setCallActive(isCallActive())
+      setIncomingFrom(getIncomingFrom())
     })
   }, [])
 
@@ -257,6 +262,26 @@ export default function TopBar() {
           </>
         )}
       </div>
+
+      {incomingFrom && !callActive && room && (
+        <div className="fixed left-1/2 top-14 z-40 flex -translate-x-1/2 items-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 shadow-lg shadow-zinc-900/10">
+          <span className="whitespace-nowrap text-xs text-zinc-700">
+            {Object.values(users).find((u) => u.id === incomingFrom)?.name ?? '对方'} 邀请视频通话
+          </span>
+          <button
+            onClick={() => { acceptIncomingCall() }}
+            className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-emerald-500"
+          >
+            接听
+          </button>
+          <button
+            onClick={() => declineIncomingCall()}
+            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-600 transition-colors hover:bg-zinc-100"
+          >
+            拒绝
+          </button>
+        </div>
+      )}
     </header>
   )
 }

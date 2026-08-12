@@ -229,9 +229,11 @@ function setupWSConnection(conn, req) {
 
   conn.on('message', (message) => {
     try {
-      if (typeof message === 'string') {
+      // 兼容文本帧以 string 或 Buffer 形式到达（部分环境下 ws 对文本帧也投递 Buffer）
+      const text = typeof message === 'string' ? message : Buffer.isBuffer(message) ? message.toString('utf8') : null
+      if (text) {
         try {
-          const msg = JSON.parse(message)
+          const msg = JSON.parse(text)
           if (msg && msg.type === 'webrtc') {
             relayWebRTC(doc, conn, msg)
             return
