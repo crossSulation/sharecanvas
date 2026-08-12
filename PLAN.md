@@ -144,30 +144,36 @@ classify_shape(points)
 
 #### 识别率提升（当前单形状识别）
 
-现状（2026-08-11）：已收集 hexagon（145）、octagon（102）、triangle（523）、line（211）真实手绘数据并重训；1779 例识别测试整体 94.5%（Rust 生产路径）。真实数据识别率：hexagon 100%、octagon 99%、triangle 100%、line 100%、trapezoid 99%、rect 79%。剩余短板：rect 真实数据（~79%，含标注质量问题）、parallelogram/diamond 无真实数据（合成 65%~73%）、QuickDraw 留出集 hexagon 62% / octagon 56%（QuickDraw 数据粗糙，实际手绘 99%+）。
+现状（2026-08-12）：13 类已全部收集真实手绘数据并重训；留出测试集（186 条，训练时未见过）整体 **97.3%**（Python 与 Rust 一致），11 类 100%。剩余短板：hexagon 78.6%（圆润六边形→ellipse、五边形倾向→pentagon）、octagon 85.7%（→ellipse/heptagon）。
 
-**当前识别结果（2026-08-11）**
+**当前识别结果（2026-08-12，留出测试集）**
 
-| 类别 | 真实数据量 | 真实数据识别率 | 备注 |
+| 类别 | 真实数据量 | 留出测试准确率 | 备注 |
 |------|-----------|---------------|------|
-| hexagon | 145 | 100% | QuickDraw 留出集 62% |
-| octagon | 102 | 99% | QuickDraw 留出集 56% |
-| triangle | 523 | 100% | 三笔画画法已修复 |
+| ellipse | 112 | 100% | 复用 QuickDraw circle 数据 |
+| rect | 139 | 100% | 曾因标签错位未进训练，已修复 |
 | line | 211 | 100% | |
-| trapezoid | 116 | 99% | |
-| rect | 162 | 79% | 26 条被判梯形，待复查标注 |
-| parallelogram | 0 | 65%（合成） | 待收集真实数据 |
-| diamond | 0 | 73%（合成） | 待收集真实数据 |
+| triangle | 523 | 100% | |
+| arrow | 166 | 100% | 新收集 |
+| diamond | 136 | 100% | 模板改为拉长菱形后 60%→100% |
+| star | 102 | 100% | 新收集 |
+| parallelogram | 165 | 100% | 新收集 |
+| hexagon | 145 | 78.6% | 圆润六边形→ellipse、五边形倾向→pentagon |
+| trapezoid | 114 | 100% | |
+| pentagon | 135 | 100% | 新收集 |
+| heptagon | 114 | 100% | 新收集 |
+| octagon | 145 | 85.7% | 1 条→ellipse、1 条→heptagon |
 
-全量 1779 例（真实 6 类全量 + 合成 13 类 ×40）整体 **94.5%**（Rust 生产路径）。
+留出测试集 186 条整体 **97.3%**（Rust 生产路径）。
 
 **数据采集优先级**
 
-- [x] P0：hexagon、octagon —— 已收集（145 / 102 条）并重训，真实数据识别 100% / 99%
-- [ ] P0：复查 rect 标注 —— 手绘矩形常被判为 trapezoid/parallelogram（当前真实 rect 79%），用 `preview_training_data.py` 清理脏样本
-- [ ] P1：parallelogram、diamond —— 各收集 100~200 条（合成识别率仅 65%~73%）
-- [ ] P2：其余类合成/QuickDraw 已 95%+，按需补充
-- 目标：每类 200~500 条真实数据即可明显超过合成 + QuickDraw 的效果
+- [x] P0：hexagon、octagon —— 已收集并重训
+- [x] P0：rect 清理 + 标签错位修复 —— rect 留出测试 100%
+- [x] P1：parallelogram、diamond —— 已收集；diamond 模板改为拉长菱形（宽:高≈1.6:1）后 60%→100%
+- [x] P1：补齐 arrow / ellipse / star / pentagon / heptagon 真实数据（13 类全齐）
+- [ ] P2：hexagon / octagon 边界样本 —— 圆润六边形、五边形倾向六边形、七边形倾向八边形（各 30~50 条）
+- [ ] P3：置信度策略 —— 当前阈值 0.5 只挡低置信输入；高置信误判（0.70~0.99）阈值无法过滤，需靠数据修复；可选 top-2 二选一交互
 
 **训练侧小杠杆（次要）**
 
@@ -210,6 +216,26 @@ classify_shape(points)
 - 风格迁移（style transfer）
 - 文字转图片（text-to-image）
 - ONNX 模型架构升级（2D CNN 替代 MLP，已完成）
+
+---
+
+### 近期改动记录（2026-08-12）
+
+**识别率提升（L5）**
+
+- [x] 修复 Python/Rust 类别标签错位：训练 `LABELS` 由 circle/square 改为 ellipse/rect，与 `onnx.rs` 对齐（QuickDraw 用 circle/square 数据别名）；真实 rect 数据首次进入训练（commit `1e72b23`）
+- [x] 新增留出测试集流程：真实数据在过采样前按类别划分 train/val/test（默认每类测试上限 20 条），输出 `models/real_test.jsonl`；新增 `scripts/gen_test_cases.py` + `npm run ai:eval-real`（commit `1e72b23`）
+- [x] 留出划分改为按类别独立随机种子：某类数据量变化不再打乱其他类别的测试集，跨版本对比稳定（commit `90a4d76`）
+- [x] 补齐 13 类真实手绘数据：arrow 166 / ellipse 112 / star 102 / pentagon 135 / heptagon 114 / diamond 136（拉长菱形重画）/ octagon 145（commit `03d8246`）
+- [x] diamond 参考模板改为拉长菱形（宽:高≈1.6:1），避免与旋转 45° 正方形（QuickDraw square）形态重叠；diamond 留出准确率 60% → 100%
+- [x] 置信度阈值调整：`src/lib/aiBackend.ts` 0.15 → 0.5（Rust 后端 + JS 兜底两处）；分析确认误判均为高置信（0.70~0.99），阈值只能挡低置信输入，无法过滤高置信误判，需补边界数据
+- [x] 当前结果：留出测试 186 条整体 97.3%（Rust/Python 一致）；11 类 100%，hexagon 78.6%、octagon 85.7% 为剩余短板
+
+**环境（Android dev）**
+
+- [x] 安装 NDK 28.2.13676358 + JDK 21（Gradle 8.14 不支持 JDK 25）+ Rust Android 目标
+- [x] 绕过 Windows 符号链接权限限制：cargo 直接编译 .so → 复制到 jniLibs → gradle 跳过 rust 任务打包 → adb 安装；`adb reverse` / WiFi 直连 192.168.19.118:5173 联调
+- [x] devUrl 与前端数据地址统一为 `LOCAL_DATA_URL` 环境变量（`192.168.19.118:5173`）；HMR 通过 `server.hmr.host` 从该变量推导，修复 tauri.localhost origin 下 WebSocket 连不上问题
 
 ---
 
