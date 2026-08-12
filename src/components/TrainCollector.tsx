@@ -49,7 +49,15 @@ function templateFor(label: string, angleDeg: number): Pt[] | null {
   const key = label.trim().toLowerCase()
   const shape: Shape = { id: 'tpl', kind: 'diamond', x0: -1, y0: -1, x1: 1, y1: 1, color: '#000', size: 1 }
   let pts: Pt[] = []
-  if (POLY_TEMPLATE_KINDS.includes(key)) {
+  if (key === 'diamond') {
+    // 菱形参考模板：明显拉长（宽:高≈1.6:1），避免收集到与旋转45°正方形相同的形态
+    pts = [
+      { x: 0, y: -0.62 },
+      { x: 1, y: 0 },
+      { x: 0, y: 0.62 },
+      { x: -1, y: 0 },
+    ]
+  } else if (POLY_TEMPLATE_KINDS.includes(key)) {
     shape.kind = key as Shape['kind']
     pts = polygonPoints(shape)
   } else if (key === 'rect' || key === 'square' || key === 'roundrect') {
