@@ -58,6 +58,17 @@ function makePeer(from: string, stream: MediaStream): PeerData {
       peer.makingOffer = false
     }
   }
+  pc.onconnectionstatechange = () => {
+    const state = pc.connectionState
+    if (state === 'failed' || state === 'closed') {
+      removePeer(from)
+    } else if (state === 'disconnected') {
+      // 短暂断网可能恢复，给 5 秒宽限期
+      setTimeout(() => {
+        if (pc.connectionState === 'disconnected') removePeer(from)
+      }, 5000)
+    }
+  }
   stream.getTracks().forEach((t) => pc.addTrack(t, stream))
   return peer
 }
@@ -76,7 +87,33 @@ export async function startCall(): Promise<MediaStream | null> {
   }
 }
 
-export function stopCall() {
+function sendBye(to: string) {
+  collab.sendWebRTC(to, { type: 'bye' })
+}
+
+function removePeer(from: string) {
+  const peer = peers.get(from)
+  if (peer) {
+    peer.pc.close()
+    peers.delete(from)
+    notify()
+  }
+  maybeEndCall()
+}
+
+function maybeEndCall() {
+  // 所有通话连接都断开后，本端自动结束通话（释放相机/麦克风并退出通话 UI）
+  if (peers.size === 0 && localStream) {
+    teardownCall(false)
+  }
+}
+
+function teardownCall(notifyPeers: boolean) {
+  if (notifyPeers) {
+    for (const [id] of peers) {
+      try { sendBye(id) } catch { /* ignore */ }
+    }
+  }
   localStream?.getTracks().forEach((t) => t.stop())
   localStream = null
   peers.forEach((p) => p.pc.close())
@@ -85,7 +122,13 @@ export function stopCall() {
     clearInterval(callInterval)
     callInterval = null
   }
+  incomingFrom = null
+  pendingOffer = null
   notify()
+}
+
+export function stopCall() {
+  teardownCall(true)
 }
 
 export function toggleLocalAudio() {
@@ -162,6 +205,7 @@ function checkNewUsers() {
       peers.get(id)?.pc.close()
       peers.delete(id)
       notify()
+      maybeEndCall()
     }
   }
 }
@@ -174,6 +218,12 @@ async function handleSignal(from: string, data: RTCSignal) {
       pendingOffer = data.sdp
       notify()
     }
+    return
+  }
+
+  if (data.type === 'bye') {
+    // 对端挂断/离开：关闭该连接，若无其他连接则自动结束通话
+    removePeer(from)
     return
   }
 

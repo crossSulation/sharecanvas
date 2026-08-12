@@ -4,6 +4,7 @@ import { collab } from '../lib/collab'
 import { roomCode } from '../lib/id'
 import { docToSnapshotHash, exportDocFile, importDocFile, jsonToDoc } from '../lib/serialize'
 import { exportDocPNG, exportDocSVG, exportDocPDF } from '../lib/exportImage'
+import { stopCall } from '../lib/webrtc'
 
 async function copyText(text: string): Promise<boolean> {
   try {
@@ -80,6 +81,7 @@ export default function ShareDialog() {
     collab.connect(c, selfName, selfColor)
   }
   const leaveRoom = () => {
+    stopCall()
     collab.disconnect()
     set({ room: null })
   }
