@@ -16,3 +16,5 @@ models/*.onnx
 samples/
 train_preview/
 .vscode/
+.reasonix/
+reasonix.toml
