@@ -130,7 +130,7 @@ export function detectShape(points: Pt[]): DetectedShape | null {
   const aspectRatio = w / Math.max(h, 1)
 
   const diamondConf = evalDiamond(points, bbox)
-  if (diamondConf > 0.65 && aspectRatio > 0.4 && aspectRatio < 2.5) {
+  if (diamondConf > 0.65 && aspectRatio > 0.25 && aspectRatio < 4.0) {
     return { kind: 'diamond', x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: diamondConf }
   }
 

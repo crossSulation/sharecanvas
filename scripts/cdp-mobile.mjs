@@ -179,7 +179,11 @@ ws.on('open', async () => {
       // 1) 画矩形（POLY=1 时一笔画完整矩形）
       if (process.env.POLY === '1') {
         const steps = 14
-        const poly = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        const cx = (x0 + x1) / 2
+        const cy = (y0 + y1) / 2
+        const poly = process.env.POLY_SHAPE === 'diamond'
+          ? [[cx, y0], [x1, cy], [cx, y1], [x0, cy], [cx, y0]]
+          : [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
         await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', clickCount: 1 })
         for (let s = 0; s < poly.length - 1; s++) {
           const [ax, ay] = poly[s]

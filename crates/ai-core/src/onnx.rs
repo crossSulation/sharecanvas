@@ -70,7 +70,7 @@ impl OnnxSession {
 
     pub fn classify_shape(&self, strokes: &[Vec<Point>]) -> Result<Option<DetectedShape>, String> {
         let cnn = self.cnn.as_ref().ok_or("CNN model not loaded")?;
-        let (idx, conf) = cnn.predict(strokes);
+        let (idx, mut conf) = cnn.predict(strokes);
 
         let labels: [&str; 13] = [
             "ellipse", "rect", "line", "triangle", "arrow",
@@ -87,6 +87,16 @@ impl OnnxSession {
                 if crate::has_arrowhead(&pts, &pts[0], &pts[pts.len() - 1]) {
                     kind = "arrow";
                 }
+            }
+        }
+        // 极端长宽比菱形（两头尖）易被 CNN 误判为 triangle/arrow/line；
+        // 几何菱形拟合度高时兜底改判 diamond（真实三角形/箭头拟合度显著偏低）
+        if kind == "triangle" || kind == "arrow" || kind == "line" {
+            let pts: Vec<Point> = strokes.iter().flatten().cloned().collect();
+            let dconf = crate::diamond_likeness(&pts);
+            if dconf > 0.65 {
+                kind = "diamond".into();
+                conf = conf.max(dconf as f32);
             }
         }
 

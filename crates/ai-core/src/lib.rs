@@ -213,6 +213,22 @@ fn eval_diamond(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     (1.0 - rms / 0.5).max(0.0)
 }
 
+/// 几何菱形拟合度：CNN 把极端长宽比菱形（两头尖）误判为 triangle/arrow/line 时，
+/// 用它做兜底改判。真实三角形/箭头/直线的拟合度显著低于菱形。
+pub fn diamond_likeness(points: &[Point]) -> f64 {
+    if points.len() < 4 {
+        return 0.0;
+    }
+    let min_x = points.iter().map(|p| p.x).fold(f64::INFINITY, f64::min);
+    let max_x = points.iter().map(|p| p.x).fold(f64::NEG_INFINITY, f64::max);
+    let min_y = points.iter().map(|p| p.y).fold(f64::INFINITY, f64::min);
+    let max_y = points.iter().map(|p| p.y).fold(f64::NEG_INFINITY, f64::max);
+    if max_x - min_x < 5.0 || max_y - min_y < 5.0 {
+        return 0.0;
+    }
+    eval_diamond(points, (min_x, min_y, max_x, max_y))
+}
+
 fn eval_parallelogram(points: &[Point], bbox: (f64, f64, f64, f64)) -> f64 {
     let w = bbox.2 - bbox.0;
     let h = bbox.3 - bbox.1;

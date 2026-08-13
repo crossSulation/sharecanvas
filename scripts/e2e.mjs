@@ -548,6 +548,38 @@ async function runTests(browser) {
     )
   })
 
+  await test('AI 美化：两头尖（极端长宽比）菱形识别为 diamond 而非 triangle/arrow', async () => {
+    // 竖长菱形（上下尖，宽:高≈1:3），此前被 CNN 误判为 triangle
+    await clickTool(2) // pen
+    const pts = [[360, 200], [400, 320], [360, 440], [320, 320], [360, 200]]
+    await page.mouse.move(pts[0][0], pts[0][1])
+    await page.mouse.down()
+    for (const [x, y] of pts.slice(1)) {
+      await page.mouse.move(x, y, { steps: 6 })
+    }
+    await page.mouse.up()
+    await saveWait()
+    const beforeShapes = (await readDoc()).shapes.length
+
+    await clickTool(0) // select
+    await click(380, 260) // 点中左上边
+    await wait(300)
+    const clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '菱形应能选中并出现美化按钮')
+    await wait(2000)
+    const doc = await readDoc()
+    const newShapes = doc.shapes.slice(beforeShapes)
+    assert(
+      newShapes.length === 1 && newShapes[0]?.kind === 'diamond',
+      `两头尖菱形应识别为 diamond，实际 ${JSON.stringify(newShapes.map((s) => s.kind))}`,
+    )
+  })
+
   await test('橡皮擦：区域遮罩写入文档（不删除笔迹数据）', async () => {
     const before = (await readDoc()).strokes.length
     await clickTool(4)
