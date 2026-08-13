@@ -2,6 +2,7 @@ import * as Y from 'yjs'
 import { IndexeddbPersistence } from 'y-indexeddb'
 import type { Doc, EraseCircle, LayerInfo, Obj3D, Pt, Shape, Stroke, TextItem } from '../types'
 import { initSeq } from './seq'
+import { createId } from './id'
 import { loadDoc } from './storage'
 
 export const yDoc = new Y.Doc()
@@ -49,6 +50,37 @@ export function refreshSeqCounter(): void {
 export function ensureDefaultLayer(): void {
   if (yLayers.length > 0) return
   yPush('layers', [{ id: DEFAULT_LAYER_ID, name: '图层 1', visible: true, locked: false, opacity: 1 }])
+}
+
+// 图层数据清洗：
+// 1) 缺失 id 的图层补一个 id（并补默认名字），否则无法被选中/编辑
+// 2) 并发创建默认层（如两个端同时进空房间）会让 layer_default 出现多条，
+//    保留第一条，删除其余重复项，避免重复 key 导致渲染错乱与显隐失效
+export function sanitizeLayers(): void {
+  const fixMaps: Y.Map<unknown>[] = []
+  const removeMaps: Y.Map<unknown>[] = []
+  let seenDefault = false
+  yLayers.toArray().forEach((m) => {
+    const id = m.get('id')
+    if (typeof id !== 'string' || !id) {
+      fixMaps.push(m)
+    } else if (id === DEFAULT_LAYER_ID) {
+      if (seenDefault) removeMaps.push(m)
+      seenDefault = true
+    }
+  })
+  if (fixMaps.length || removeMaps.length) {
+    transactLocal(() => {
+      for (const rm of removeMaps) {
+        const idx = yLayers.toArray().indexOf(rm)
+        if (idx >= 0) yLayers.delete(idx, 1)
+      }
+      for (const m of fixMaps) {
+        m.set('id', createId('layer'))
+        if (!m.get('name')) m.set('name', '图层')
+      }
+    })
+  }
 }
 
 export function transactLocal(fn: () => void): void {
@@ -251,10 +283,14 @@ export async function initPersistence(): Promise<void> {
     await persistence.whenSynced.catch(() => {})
   }
   ensureDefaultLayer()
+  sanitizeLayers()
   refreshSeqCounter()
 }
 
 // 远端同步可能带来更大的序号，收到非本地更新时续接计数器
 yDoc.on('update', (_update, origin) => {
-  if (origin !== LOCAL) refreshSeqCounter()
+  if (origin !== LOCAL) {
+    sanitizeLayers()
+    refreshSeqCounter()
+  }
 })

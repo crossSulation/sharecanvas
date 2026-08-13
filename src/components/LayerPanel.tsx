@@ -49,7 +49,7 @@ function LayerList() {
         const isActive = l.id === activeLayerId
         return (
           <div
-            key={l.id}
+            key={`${l.id}-${i}`}
             data-testid="layer-row"
             onClick={() => setActiveLayer(l.id)}
             className={`cursor-pointer rounded-lg border px-2 py-1.5 transition-colors ${

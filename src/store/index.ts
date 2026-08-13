@@ -35,7 +35,7 @@ export const useStore = create<CanvasState>()((...a) => ({
   ...createSelectionSlice(...a),
   doc: initialDoc,
   color: prefs.color || '#18181b',
-  activeLayerId: initialDoc.layers[0]?.id ?? '',
+  activeLayerId: initialDoc.layers.find((l) => l.id)?.id ?? '',
 }))
 
 // ---------- Yjs 变更 -> 镜像文档 + 防抖持久化 ----------
@@ -56,7 +56,7 @@ yDoc.on('update', () => {
     const doc = yToDoc()
     const activeLayerId = doc.layers.some((l) => l.id === s.activeLayerId)
       ? s.activeLayerId
-      : doc.layers[0]?.id ?? ''
+      : doc.layers.find((l) => l.id)?.id ?? ''
     return { doc, activeLayerId }
   })
 })
