@@ -316,8 +316,9 @@ function MobileToolbar() {
   }
 
   const handleBoxSelect = () => {
-    setBoxSelecting(true)
+    // 注意顺序：setTool 会把 boxSelecting 重置为 false，必须先切工具再开框选
     setTool('select')
+    setBoxSelecting(true)
     setSelectSubOpen(false)
   }
 
