@@ -424,7 +424,8 @@ const WEBRTC_MAX_BYTES = 64 * 1024 // webrtc 信令消息上限（offer/answer/I
 function relayWebRTC(doc, from, msg) {
   const payload = JSON.stringify(msg)
   for (const c of doc.conns) {
-    if (c !== from) send(c, payload)
+    // 只转发给 rtc 信令连接（?rtc=1），避免 yjs 同步连接收到 JSON 文本帧导致解码报错
+    if (c !== from && c.isRTC) send(c, payload)
   }
 }
 
@@ -452,6 +453,7 @@ function setupWSConnection(conn, req) {
   conn.binaryType = 'arraybuffer'
   conn.clientIDs = new Set()
   conn.isAlive = true
+  conn.isRTC = (req.url || '').includes('rtc=1')
   conn.outbox = []
   conn.outboxBytes = 0
   conn.draining = false

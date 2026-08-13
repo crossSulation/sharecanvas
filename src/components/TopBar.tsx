@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { useTranslation } from 'react-i18next'
 import {
   startCall, stopCall, toggleLocalAudio, toggleLocalVideo,
-  isCallActive, subscribe, getIncomingFrom, acceptIncomingCall, declineIncomingCall,
+  isCallActive, subscribe, getIncomingFrom, getLastCallError, acceptIncomingCall, declineIncomingCall,
 } from '../lib/webrtc'
 
 let isTauriApp = false
@@ -50,6 +50,7 @@ export default function TopBar() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [callActive, setCallActive] = useState(false)
   const [incomingFrom, setIncomingFrom] = useState<string | null>(null)
+  const [callError, setCallError] = useState('')
   const [audioOn, setAudioOn] = useState(true)
   const [videoOn, setVideoOn] = useState(true)
 
@@ -61,7 +62,10 @@ export default function TopBar() {
   }, [])
 
   const handleCallStart = useCallback(async () => {
-    await startCall()
+    const stream = await startCall()
+    const err = stream ? '' : getLastCallError()
+    setCallError(err)
+    if (err) setTimeout(() => setCallError(''), 6000)
     setCallActive(isCallActive())
   }, [])
 
@@ -200,6 +204,12 @@ export default function TopBar() {
             <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
           </svg>
         </button>
+      )}
+
+      {callError && (
+        <div className="fixed left-1/2 top-14 z-40 max-w-[86vw] -translate-x-1/2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700 shadow-lg">
+          {callError}
+        </div>
       )}
 
       {callActive && (

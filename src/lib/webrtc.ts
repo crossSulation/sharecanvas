@@ -20,6 +20,7 @@ let subscribers: (() => void)[] = []
 let callInterval: ReturnType<typeof setInterval> | null = null
 let incomingFrom: string | null = null
 let pendingOffer: RTCSessionDescriptionInit | null = null
+let lastCallError = ''
 
 export function getLocalStream() { return localStream }
 export function getRemoteStreams(): Record<string, MediaStream> {
@@ -28,6 +29,7 @@ export function getRemoteStreams(): Record<string, MediaStream> {
 }
 export function isCallActive() { return !!localStream }
 export function getIncomingFrom() { return incomingFrom }
+export function getLastCallError() { return lastCallError }
 
 function notify() { subscribers.forEach((fn) => fn()) }
 export function subscribe(fn: () => void) {
@@ -39,7 +41,7 @@ function sendSignal(to: string, data: unknown) {
   collab.sendWebRTC(to, data)
 }
 
-function makePeer(from: string, stream: MediaStream): PeerData {
+function createPeer(from: string): PeerData {
   const pc = new RTCPeerConnection(STUN)
   const peer: PeerData = { pc, makingOffer: false }
   peers.set(from, peer)
@@ -69,19 +71,31 @@ function makePeer(from: string, stream: MediaStream): PeerData {
       }, 5000)
     }
   }
-  stream.getTracks().forEach((t) => pc.addTrack(t, stream))
+  return peer
+}
+
+function makePeer(from: string, stream: MediaStream): PeerData {
+  const peer = createPeer(from)
+  stream.getTracks().forEach((t) => peer.pc.addTrack(t, stream))
   return peer
 }
 
 export async function startCall(): Promise<MediaStream | null> {
   if (localStream) return localStream
+  if (!navigator.mediaDevices?.getUserMedia) {
+    lastCallError = '当前页面不是安全上下文（需 localhost 或 HTTPS），浏览器无法使用摄像头/麦克风'
+    console.error(lastCallError)
+    return null
+  }
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+    lastCallError = ''
     notify()
     callInterval = setInterval(checkNewUsers, 3000)
     setTimeout(() => checkNewUsers(), 500)
     return localStream
   } catch (err) {
+    lastCallError = `无法访问摄像头/麦克风：${String(err)}`
     console.error('getUserMedia failed:', err)
     return null
   }
@@ -157,7 +171,7 @@ export async function acceptIncomingCall(): Promise<boolean> {
   if (!stream) return false
   let peer = peers.get(from)
   if (!peer) {
-    peer = makePeer(from, stream)
+    peer = createPeer(from)
   } else {
     stream.getTracks().forEach((t) => peer!.pc.addTrack(t, stream))
   }
@@ -168,6 +182,10 @@ export async function acceptIncomingCall(): Promise<boolean> {
     }
     await pc.setLocalDescription()
     sendSignal(from, { type: 'answer', sdp: pc.localDescription })
+    // 应答发出后再加本地轨道，触发 renegotiation，避免与手动应答竞争产生双 offer
+    if (peer.pc.getSenders().length === 0) {
+      stream.getTracks().forEach((t) => peer!.pc.addTrack(t, stream))
+    }
     return true
   } catch (err) {
     console.error('accept call error:', err)
@@ -211,6 +229,7 @@ function checkNewUsers() {
 }
 
 async function handleSignal(from: string, data: RTCSignal) {
+  console.log('[rtc] recv type=', data.type, 'from=', from)
   // 本端未开启通话：收到 offer 视为来电，暂存并通知 UI，等待用户接听
   if (!localStream) {
     if (data.type === 'offer' && data.sdp && !incomingFrom) {

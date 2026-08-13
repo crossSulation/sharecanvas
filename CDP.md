@@ -191,3 +191,29 @@ node scripts/cdp-mobile.mjs flow 100,750,450,1000
   否则 `detected_shape` 和 `func_params` 不能被前端 `detectedShape`/`funcParams` 读到。
 - Android 上不能把日志写到 `/data/local/tmp`（无权限），
   应用 `app.path().app_log_dir()`（`/data/user/0/<pkg>/logs/`）。
+
+## 实测：浏览器 -> 移动端 WebRTC 通话端到端测试
+
+`scripts/cdp-rtc-test.mjs` 会同时驱动浏览器（puppeteer）和移动端（CDP），
+自动完成“进房 -> 发起通话 -> 移动端接听 -> 校验两端通话 UI”：
+
+```powershell
+# 先让移动端进房（深链）
+node scripts/cdp-mobile.mjs eval "location.href='http://tauri.localhost/?room=RTCTEST123'"
+# 再跑端到端测试（浏览器用 localhost，因为非安全上下文无法 getUserMedia）
+node scripts/cdp-rtc-test.mjs RTCTEST123 ws://localhost:9222/devtools/page/<TARGET_ID> http://localhost:5173
+```
+
+### WebRTC 信令日志
+
+- 两端收到任何信令都会打 `[rtc] recv type=offer/answer/ice from=<id>`（logcat tag `Tauri/Console`）。
+- 服务端只把 webrtc 信令转发给 `?rtc=1` 连接，不再广播给 yjs 同步连接（否则客户端报
+  “Unexpected end of array” 解码错误）。
+
+### 重要坑：浏览器侧 getUserMedia 需要安全上下文
+
+- `http://localhost` 是安全上下文；`http://192.168.19.118:5173`（局域网 IP）不是，
+  `navigator.mediaDevices` 不存在，通话点下去没反应（移动端自然“收不到”）。
+- 现在浏览器端失败时会弹出红色提示（TopBar 的 callError）：
+  “当前页面不是安全上下文（需 localhost 或 HTTPS）……”。
+- 移动端 Tauri 页面（`http://tauri.localhost`）属于安全上下文，不受影响。
