@@ -746,13 +746,6 @@ export default function Canvas2D() {
       return
     }
 
-    if (it?.type === 'pan') {
-      const dx = e.clientX - it.start.x
-      const dy = e.clientY - it.start.y
-      s.setCamera({ x: it.camStart.x - dx / it.camStart.zoom, y: it.camStart.y - dy / it.camStart.zoom })
-      return
-    }
-
     if (pointersRef.current.size >= 2) {
       const pts = [...pointersRef.current.values()]
       const mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 }
@@ -772,6 +765,13 @@ export default function Canvas2D() {
         y: wy - (mid.y - rect.top - rect.height / 2) / zoom,
       })
       interactionRef.current = { type: 'pinch', prevMid: mid, prevDist: dist, camStart: s.camera }
+      return
+    }
+
+    if (it?.type === 'pan') {
+      const dx = e.clientX - it.start.x
+      const dy = e.clientY - it.start.y
+      s.setCamera({ x: it.camStart.x - dx / it.camStart.zoom, y: it.camStart.y - dy / it.camStart.zoom })
       return
     }
 
