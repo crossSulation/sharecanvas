@@ -440,8 +440,17 @@ function MobileToolbar() {
   )
 }
 
+// Tauri 的 is_mobile 是异步 invoke，缓存结果避免每次挂载都先闪错误的工具栏
+let cachedTauriMobile: boolean | null = null
+
 function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false)
+  const [isMobile, setIsMobile] = useState<boolean | null>(() => {
+    // 浏览器环境可以同步判断；Tauri 环境用缓存，首次未知时先不渲染
+    if (typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)) {
+      return window.matchMedia('(max-width: 639px)').matches
+    }
+    return cachedTauriMobile
+  })
 
   useEffect(() => {
     let cancelled = false
@@ -449,6 +458,7 @@ function useIsMobile() {
       try {
         const { invoke } = await import('@tauri-apps/api/core')
         const result = await invoke<boolean>('is_mobile')
+        cachedTauriMobile = result
         if (!cancelled) setIsMobile(result)
       } catch {
         if (!cancelled) {
@@ -468,6 +478,8 @@ function useIsMobile() {
 
 export default function Toolbar() {
   const isMobile = useIsMobile()
+  // 检测完成前不渲染，避免先闪现桌面版工具栏再切到移动版
+  if (isMobile === null) return null
 
   return (
     <div className="no-select pointer-events-none z-20 flex flex-col items-start gap-2
