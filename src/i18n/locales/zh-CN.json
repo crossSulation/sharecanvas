@@ -54,7 +54,9 @@
     "connecting": "连接中…",
     "offline": "本地模式",
     "penConnected": "压感笔已连接",
-    "room": "房间"
+    "room": "房间",
+    "members": "成员",
+    "me": "我"
   },
   "layer": {
     "hide": "隐藏图层",

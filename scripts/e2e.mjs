@@ -143,19 +143,28 @@ async function runTests(browser) {
     assert(selectCursor === 'default', `选择工具光标应为 default，实际 ${selectCursor}`)
   })
 
-  await test('选择工具下空白处左键拖拽可平移画布', async () => {
+  await test('选择工具：空白处左键拖拽为自由套索选择（不平移画布）', async () => {
+    // 先画一笔，供套索圈选
+    await clickTool(2)
+    await drag(300, 350, 500, 420)
+    await saveWait()
     await clickTool(0)
     const before = await page.evaluate(() => window.__sharecanvasCamera())
-    await page.mouse.move(600, 400)
+    // 空白处起手，画一圈套索围住刚才的笔画
+    await page.mouse.move(240, 310)
     await page.mouse.down()
-    await page.mouse.move(700, 450, { steps: 6 })
+    for (const [x, y] of [[240, 470], [570, 470], [570, 310], [240, 310]]) {
+      await page.mouse.move(x, y, { steps: 6 })
+    }
     await page.mouse.up()
     await wait(300)
     const after = await page.evaluate(() => window.__sharecanvasCamera())
     assert(
-      after.x !== before.x || after.y !== before.y,
-      `空白处拖拽后相机应变化：${JSON.stringify(before)} -> ${JSON.stringify(after)}`,
+      after.x === before.x && after.y === before.y && after.zoom === before.zoom,
+      `空白处套索不应平移画布：${JSON.stringify(before)} -> ${JSON.stringify(after)}`,
     )
+    const selected = await page.evaluate(() => window.__sharecanvasSelected())
+    assert(selected.length > 0, `套索应选中圈内笔画，实际 ${JSON.stringify(selected)}`)
   })
 
   await test('手型工具：左键拖拽平移画布', async () => {
@@ -732,7 +741,18 @@ async function runTests(browser) {
     })
     assert(!!roomCode, '未能从分享弹窗拿到房间码')
     const statusAlone = await page.evaluate(() => document.querySelector('[data-testid="room-status"]')?.textContent || '')
-    assert(!statusAlone.includes(roomCode), `仅自己一人时不应显示房间码，实际 ${statusAlone}`)
+    assert(statusAlone.includes(roomCode), `仅自己一人时也应显示房间码，实际 ${statusAlone}`)
+    // 点击房间号应弹出成员下拉（至少包含自己）
+    await page.evaluate(() => document.querySelector('[data-testid="room-status"]').click())
+    await wait(300)
+    const memberMenu = await page.evaluate(() => document.querySelector('[data-testid="room-member-menu"]')?.textContent || '')
+    assert(memberMenu.length > 0, `点击房间号应显示成员下拉，实际 ${memberMenu}`)
+    // 点空白遮罩关闭下拉，避免遮挡后续操作
+    await page.evaluate(() => {
+      const overlay = document.querySelector('.fixed.inset-0')
+      if (overlay) overlay.click()
+    })
+    await wait(300)
     await page.evaluate(() => document.querySelector('[data-testid="share-close"]').click())
     await wait(300)
 

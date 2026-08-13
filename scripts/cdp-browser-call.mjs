@@ -20,6 +20,7 @@ function findChrome() {
 const room = process.argv[2] || 'RTCTEST123'
 const base = process.argv[3] || 'http://192.168.19.118:5173'
 const holdMs = Number(process.env.HOLD_MS || 4000)
+const joinOnly = process.env.JOIN_ONLY === '1'
 const url = `${base}/?room=${encodeURIComponent(room)}`
 const wait = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -42,7 +43,12 @@ try {
   await wait(2500)
   const hasCallBtn = await page.evaluate(() => !!document.querySelector('[data-testid="call-start"]'))
   console.log('call-start button:', hasCallBtn)
-  if (!hasCallBtn) {
+  if (joinOnly) {
+    const users = await page.evaluate(() => Object.keys(window.__sharecanvasUsers ? window.__sharecanvasUsers() : {}).length)
+    console.log('JOINED room, users seen:', users)
+    await wait(holdMs)
+    console.log('JOIN hold done')
+  } else if (!hasCallBtn) {
     const state = await page.evaluate(() => ({
       url: location.href,
       shareOpen: !!document.querySelector('[data-testid="share-open"]'),

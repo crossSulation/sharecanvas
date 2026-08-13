@@ -54,7 +54,9 @@
     "connecting": "Connecting…",
     "offline": "Local Mode",
     "penConnected": "Pen Tablet Connected",
-    "room": "Room"
+    "room": "Room",
+    "members": "Members",
+    "me": "Me"
   },
   "layer": {
     "hide": "Hide Layer",

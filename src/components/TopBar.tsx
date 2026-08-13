@@ -48,6 +48,7 @@ export default function TopBar() {
   const setTrainMode = useStore((s) => s.setTrainMode)
   const otherUsers = Object.values(users).filter((u) => u.id !== selfId).length
   const [menuOpen, setMenuOpen] = useState(false)
+  const [roomMenuOpen, setRoomMenuOpen] = useState(false)
   const [callActive, setCallActive] = useState(false)
   const [incomingFrom, setIncomingFrom] = useState<string | null>(null)
   const [callError, setCallError] = useState('')
@@ -172,27 +173,58 @@ export default function TopBar() {
         </div>
       )}
 
-      {!isTauriApp && (
-      <div data-testid="room-status"
-        className={`hidden items-center gap-1.5 rounded-full border px-2 xl:px-3 py-1 text-xs xl:flex ${
-          wsStatus === 'online' ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-          : wsStatus === 'connecting' ? 'border-amber-200 bg-amber-50 text-amber-700'
-          : 'border-zinc-200 bg-zinc-50 text-zinc-500'
-        }`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${
-          wsStatus === 'online' ? 'bg-emerald-500' : wsStatus === 'connecting' ? 'animate-pulse bg-amber-500' : 'bg-zinc-400'
-        }`} />
-        <span className="hidden xl:inline">
-          {wsStatus === 'online' && room
-            ? otherUsers > 0
+      <div className="relative">
+        <button
+          data-testid="room-status"
+          onClick={() => room && wsStatus === 'online' && setRoomMenuOpen(!roomMenuOpen)}
+          className={`flex items-center gap-1.5 rounded-full border px-2 xl:px-3 py-1 text-xs transition-colors ${
+            room && wsStatus === 'online'
+              ? 'cursor-pointer border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+              : wsStatus === 'connecting'
+                ? 'border-amber-200 bg-amber-50 text-amber-700'
+                : 'border-zinc-200 bg-zinc-50 text-zinc-500'
+          } ${roomMenuOpen ? 'ring-2 ring-emerald-200' : ''}`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${
+            wsStatus === 'online' ? 'bg-emerald-500' : wsStatus === 'connecting' ? 'animate-pulse bg-amber-500' : 'bg-zinc-400'
+          }`} />
+          <span className="max-w-[88px] truncate xl:max-w-none">
+            {wsStatus === 'online' && room
               ? `${t('status.room')} ${room}`
-              : t('status.online')
-            : wsStatus === 'connecting'
-              ? t('status.connecting')
-              : t('status.offline')}
-        </span>
+              : wsStatus === 'connecting'
+                ? t('status.connecting')
+                : t('status.offline')}
+          </span>
+          {room && wsStatus === 'online' && (
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          )}
+        </button>
+
+        {roomMenuOpen && room && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setRoomMenuOpen(false)} />
+            <div
+              data-testid="room-member-menu"
+              className="absolute right-0 top-full z-50 mt-1.5 w-60 rounded-xl border border-zinc-200 bg-white py-1.5 shadow-lg shadow-zinc-900/10"
+            >
+              <div className="px-3 pb-1 pt-0.5 text-[10px] text-zinc-400">
+                {t('status.members')} · {Object.values(users).length}
+              </div>
+              {Object.values(users).map((u) => (
+                <div key={u.id} className="flex items-center gap-2 px-3 py-1.5 text-xs text-zinc-700 hover:bg-zinc-50">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: u.color }} />
+                  <span className="min-w-0 flex-1 truncate">{u.name}</span>
+                  {u.id === selfId && (
+                    <span className="shrink-0 text-[10px] text-zinc-400">{t('status.me')}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
-      )}
 
       {room && !callActive && (
         <button data-testid="call-start"
