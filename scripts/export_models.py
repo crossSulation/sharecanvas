@@ -25,8 +25,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 QUICKDRAW_URL = "https://storage.googleapis.com/quickdraw_dataset/full/numpy_bitmap/{}.npy"
+MNIST_BASE = "https://storage.googleapis.com/cvdf-datasets/mnist"
 # 类别顺序必须与 crates/ai-core/src/onnx.rs 的 labels 完全一致
-LABELS = ["ellipse", "rect", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon"]
+LABELS = ["ellipse", "rect", "line", "triangle", "arrow", "diamond", "star", "parallelogram", "hexagon", "trapezoid", "pentagon", "heptagon", "octagon",
+          "0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+DIGIT_LABELS = set("0123456789")
 # QuickDraw 没有 rect/ellipse 类别，用语义相近的 square/circle 数据
 QUICKDRAW_ALIASES = {"ellipse": "circle", "rect": "square"}
 MAX_POINTS = 100
@@ -61,6 +64,41 @@ def download_quickdraw(label, n):
     except Exception as e:
         print(f"FAILED: {e}")
         return None
+
+
+def load_mnist(n_per_digit):
+    """下载并解析 MNIST 训练集，返回 {digit: (N, 28, 28) float32}。
+    原始字节数组缓存在 samples/ 下，避免重复下载（~47MB）。"""
+    import gzip
+    os.makedirs(CACHE_DIR, exist_ok=True)
+
+    def fetch_bytes(name, url):
+        p = os.path.join(CACHE_DIR, name + ".npy")
+        if os.path.exists(p):
+            return np.load(p)
+        print(f"  Downloading {name}...", end=" ", flush=True)
+        try:
+            resp = requests.get(url, timeout=180)
+            resp.raise_for_status()
+            arr = np.frombuffer(gzip.decompress(resp.content), dtype=np.uint8)
+            np.save(p, arr)
+            print(f"ok ({len(arr)} bytes)")
+            return arr
+        except Exception as e:
+            print(f"FAILED: {e}")
+            return None
+
+    img_buf = fetch_bytes("mnist_images", f"{MNIST_BASE}/train-images-idx3-ubyte.gz")
+    lbl_buf = fetch_bytes("mnist_labels", f"{MNIST_BASE}/train-labels-idx1-ubyte.gz")
+    if img_buf is None or lbl_buf is None:
+        return None
+    images = img_buf[16:].reshape(-1, 28, 28).astype(np.uint8)
+    labels = lbl_buf[8:].astype(np.int64)
+    result = {}
+    for d in range(10):
+        idx = np.where(labels == d)[0][:n_per_digit]
+        result[str(d)] = images[idx]
+    return result
 
 
 def stroke_to_bitmap(strokes):
@@ -150,8 +188,57 @@ def split_strokes(pts, n_strokes, rng):
     return strokes or [pts]
 
 
+# 每个数字的笔画模板（顶点折线，坐标在约 [-0.5, 0.5] 内），
+# 对应手写风格骨架。数字有方向性，与形状不同，不能全角度随机旋转。
+DIGIT_TEMPLATES = {
+    "0": [[(-0.28, -0.45), (-0.28, 0.45), (0.32, 0.45), (0.32, -0.45), (-0.28, -0.45)]],
+    "1": [[(0.05, -0.45), (0.05, 0.5)], [(-0.25, -0.28), (0.05, -0.45)]],
+    "2": [[(-0.30, -0.32), (0.30, -0.45), (0.30, -0.05), (-0.35, 0.15), (-0.35, 0.5), (0.40, 0.5)]],
+    "3": [[(-0.30, -0.45), (0.25, -0.45), (0.00, -0.15), (0.30, 0.00), (-0.05, 0.25), (0.20, 0.5), (-0.30, 0.5)]],
+    "4": [[(0.20, -0.5), (-0.35, 0.1), (0.30, 0.1)], [(0.05, -0.1), (0.05, 0.5)]],
+    "5": [[(0.25, -0.5), (-0.40, -0.5), (-0.40, -0.12), (0.05, -0.12), (0.28, 0.10), (-0.05, 0.5), (-0.35, 0.5)]],
+    "6": [[(-0.05, -0.5), (-0.40, -0.15), (-0.40, 0.15), (0.05, 0.5), (0.30, 0.15), (0.05, -0.15), (-0.30, -0.2)]],
+    "7": [[(-0.40, -0.5), (0.40, -0.5)], [(0.35, -0.45), (-0.15, 0.5)]],
+    "8": [[(-0.20, -0.45), (0.20, -0.45), (0.20, 0.00), (-0.20, 0.00), (-0.20, -0.45)],
+          [(-0.20, 0.05), (0.20, 0.05), (0.20, 0.5), (-0.20, 0.5), (-0.20, 0.05)]],
+    "9": [[(0.15, 0.5), (0.40, 0.15), (0.40, -0.15), (0.00, -0.5), (-0.30, -0.15), (-0.05, 0.15), (0.30, 0.20)]],
+}
+
+
+def _densify_verts(verts, n):
+    """沿折线弧长等距插值到 n 个点"""
+    verts = np.array(verts, dtype=np.float32)
+    if len(verts) < 2:
+        return verts
+    seg = np.sqrt(((verts[1:] - verts[:-1]) ** 2).sum(1))
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    if cum[-1] < 1e-6:
+        return verts
+    t = np.linspace(0.0, cum[-1], n)
+    return np.stack([np.interp(t, cum, verts[:, 0]), np.interp(t, cum, verts[:, 1])], axis=1)
+
+
+def gen_digit_bitmap_samples(label, n=2000):
+    """生成数字的 28×28 位图样本：抖动 + 小幅旋转（±10°），保持手写方向。
+    与形状不同，数字不做全角度旋转（6↔9 会混淆），也不随机拆笔画（已按自然笔画拆分）。"""
+    result = np.zeros((n, IMG_SIZE * IMG_SIZE), dtype=np.float32)
+    for i in range(n):
+        angle = np.random.uniform(-math.pi / 18, math.pi / 18)
+        c, s = math.cos(angle), math.sin(angle)
+        strokes = []
+        for verts in DIGIT_TEMPLATES[label]:
+            pts = _densify_verts(verts, 24) + np.random.randn(24, 2).astype(np.float32) * 0.02
+            x = pts[:, 0] * c - pts[:, 1] * s
+            y = pts[:, 0] * s + pts[:, 1] * c
+            strokes.append(np.stack([x, y], axis=1))
+        result[i] = stroke_to_bitmap(strokes)
+    return result
+
+
 def gen_synthetic_bitmap_samples(label, n=2000):
     """生成合成形状的 28×28 位图样本（带噪声 + 随机旋转 + 随机多笔拆分）"""
+    if label in DIGIT_LABELS:
+        return gen_digit_bitmap_samples(label, n)
     gen = GENERATORS[label]
     result = np.zeros((n, IMG_SIZE * IMG_SIZE), dtype=np.float32)
     for i in range(n):
@@ -438,6 +525,12 @@ def main():
     args = parser.parse_args()
     os.makedirs(args.output, exist_ok=True)
 
+    mnist = None
+    if args.real and any(l in DIGIT_LABELS for l in LABELS):
+        mnist = load_mnist(args.samples)
+        if mnist is None:
+            print("  MNIST unavailable, digits will rely on synthetic + hand-drawn only")
+
     train_X, train_y = [], []
     val_X, val_y = [], []
     test_bitmaps, test_strokes = {}, {}
@@ -446,9 +539,12 @@ def main():
         # 跨版本对比准确率时才公平
         rng = np.random.default_rng(zlib.crc32(label.encode("utf-8")))
         if args.real:
-            data = download_quickdraw(QUICKDRAW_ALIASES.get(label, label), args.samples)
+            if label in DIGIT_LABELS:
+                data = mnist[label] if mnist is not None else None
+            else:
+                data = download_quickdraw(QUICKDRAW_ALIASES.get(label, label), args.samples)
             if data is not None:
-                # QuickDraw: 28×28 位图 → (N, 1, 28, 28)
+                # QuickDraw/MNIST: 28×28 位图 (0-255) → (N, 1, 28, 28) 归一化
                 pts = data.reshape(len(data), 1, IMG_SIZE, IMG_SIZE).astype(np.float32) / 255.0
                 idx = rng.permutation(len(pts))
                 split = int(len(pts) * 0.9)
@@ -457,7 +553,7 @@ def main():
                 val_X.append(pts[idx[split:]])
                 val_y.extend([i] * (len(pts) - split))
             else:
-                print(f"  {label}: QuickDraw not available")
+                print(f"  {label}: real data not available")
 
         # 始终加入合成数据：应用实际笔迹是细线风格（1px + 0.5 邻域），
         # 而 QuickDraw 是粗笔画位图；只学一种风格会导致另一种完全不识别。

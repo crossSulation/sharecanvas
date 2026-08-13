@@ -72,10 +72,11 @@ impl OnnxSession {
         let cnn = self.cnn.as_ref().ok_or("CNN model not loaded")?;
         let (idx, mut conf) = cnn.predict(strokes);
 
-        let labels: [&str; 13] = [
+        let labels: [&str; 23] = [
             "ellipse", "rect", "line", "triangle", "arrow",
             "diamond", "star", "parallelogram", "hexagon", "trapezoid",
             "pentagon", "heptagon", "octagon",
+            "0", "1", "2", "3", "4", "5", "6", "7", "8", "9",
         ];
         let mut kind = labels.get(idx).copied().unwrap_or("rect");
 

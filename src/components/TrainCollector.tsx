@@ -8,6 +8,21 @@ const TEMPLATE_SIZE = 0.6 // 参考模板最大边长占画布的比例
 
 const POLY_TEMPLATE_KINDS = ['triangle', 'trapezoid', 'pentagon', 'hexagon', 'heptagon', 'octagon', 'star', 'diamond', 'parallelogram']
 
+// 数字参考模板：与 scripts/export_models.py 的 DIGIT_TEMPLATES 一致（顶点折线，坐标约 [-0.5, 0.5]）
+const DIGIT_TEMPLATES: Record<string, [number, number][][]> = {
+  '0': [[[-0.28, -0.45], [-0.28, 0.45], [0.32, 0.45], [0.32, -0.45], [-0.28, -0.45]]],
+  '1': [[[0.05, -0.45], [0.05, 0.5]], [[-0.25, -0.28], [0.05, -0.45]]],
+  '2': [[[-0.3, -0.32], [0.3, -0.45], [0.3, -0.05], [-0.35, 0.15], [-0.35, 0.5], [0.4, 0.5]]],
+  '3': [[[-0.3, -0.45], [0.25, -0.45], [0.0, -0.15], [0.3, 0.0], [-0.05, 0.25], [0.2, 0.5], [-0.3, 0.5]]],
+  '4': [[[0.2, -0.5], [-0.35, 0.1], [0.3, 0.1]], [[0.05, -0.1], [0.05, 0.5]]],
+  '5': [[[0.25, -0.5], [-0.4, -0.5], [-0.4, -0.12], [0.05, -0.12], [0.28, 0.1], [-0.05, 0.5], [-0.35, 0.5]]],
+  '6': [[[-0.05, -0.5], [-0.4, -0.15], [-0.4, 0.15], [0.05, 0.5], [0.3, 0.15], [0.05, -0.15], [-0.3, -0.2]]],
+  '7': [[[-0.4, -0.5], [0.4, -0.5]], [[0.35, -0.45], [-0.15, 0.5]]],
+  '8': [[[-0.2, -0.45], [0.2, -0.45], [0.2, 0.0], [-0.2, 0.0], [-0.2, -0.45]],
+        [[-0.2, 0.05], [0.2, 0.05], [0.2, 0.5], [-0.2, 0.5], [-0.2, 0.05]]],
+  '9': [[[0.15, 0.5], [0.4, 0.15], [0.4, -0.15], [0.0, -0.5], [-0.3, -0.15], [-0.05, 0.15], [0.3, 0.2]]],
+}
+
 /** 归一化点 → 画布坐标：按最大边长统一缩放居中，并绕画布中心旋转 angleDeg */
 function toCanvasTemplate(pts: Pt[], angleDeg: number): Pt[] {
   let x0 = Infinity
@@ -44,9 +59,24 @@ function templateClosed(label: string): boolean {
   return POLY_TEMPLATE_KINDS.includes(key) || ['rect', 'square', 'roundrect', 'circle', 'ellipse', 'oval'].includes(key)
 }
 
-/** 根据标签返回画布坐标下的参考模板点（未知标签返回 null） */
-function templateFor(label: string, angleDeg: number): Pt[] | null {
+/** 根据标签返回画布坐标下的参考模板笔画列表（未知标签返回 null） */
+function templateFor(label: string, angleDeg: number): Pt[][] | null {
   const key = label.trim().toLowerCase()
+  // 数字：多笔画模板（曲线插值加粗，便于描摹）
+  if (DIGIT_TEMPLATES[key]) {
+    return DIGIT_TEMPLATES[key].map((verts) => {
+      const densified: Pt[] = []
+      for (let i = 0; i < verts.length - 1; i++) {
+        const [ax, ay] = verts[i]!
+        const [bx, by] = verts[i + 1]!
+        const seg = 8
+        for (let s = 0; s <= seg; s++) {
+          densified.push({ x: ax + ((bx - ax) * s) / seg, y: ay + ((by - ay) * s) / seg })
+        }
+      }
+      return toCanvasTemplate(densified, angleDeg)
+    })
+  }
   const shape: Shape = { id: 'tpl', kind: 'diamond', x0: -1, y0: -1, x1: 1, y1: 1, color: '#000', size: 1 }
   let pts: Pt[] = []
   if (key === 'diamond') {
@@ -91,7 +121,7 @@ function templateFor(label: string, angleDeg: number): Pt[] | null {
     return null
   }
   if (!pts.length) return null
-  return toCanvasTemplate(pts, angleDeg)
+  return [toCanvasTemplate(pts, angleDeg)]
 }
 
 interface Sample {
@@ -125,18 +155,21 @@ export default function TrainCollector() {
     // 参考模板：选中标签时显示淡色虚线轮廓，供描摹
     if (showTemplate && label.trim()) {
       const tpl = templateFor(label, templateAngle)
-      if (tpl && tpl.length > 1) {
+      if (tpl && tpl.length > 0) {
         ctx.save()
         ctx.strokeStyle = 'rgba(59,130,246,0.45)'
         ctx.lineWidth = 2
         ctx.setLineDash([8, 6])
         ctx.lineCap = 'round'
         ctx.lineJoin = 'round'
-        ctx.beginPath()
-        ctx.moveTo(tpl[0].x, tpl[0].y)
-        for (let i = 1; i < tpl.length; i++) ctx.lineTo(tpl[i].x, tpl[i].y)
-        if (templateClosed(label)) ctx.closePath()
-        ctx.stroke()
+        for (const stroke of tpl) {
+          if (stroke.length < 2) continue
+          ctx.beginPath()
+          ctx.moveTo(stroke[0]!.x, stroke[0]!.y)
+          for (let i = 1; i < stroke.length; i++) ctx.lineTo(stroke[i]!.x, stroke[i]!.y)
+          if (templateClosed(label)) ctx.closePath()
+          ctx.stroke()
+        }
         ctx.restore()
         ctx.fillStyle = 'rgba(59,130,246,0.8)'
         ctx.font = '12px ui-sans-serif, sans-serif'

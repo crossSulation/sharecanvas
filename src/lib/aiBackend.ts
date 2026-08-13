@@ -11,6 +11,9 @@ const AI_BASE = import.meta.env.LOCAL_DATA_URL ?? ''
 // 小于该尺寸的笔画视为手写文字/数字（如 0-9），只平滑、不转形状
 const TEXT_MAX_SIZE = 72
 
+// 模型返回的数字类别（与 crates/ai-core/src/onnx.rs 的 labels 后 10 类一致）
+const DIGIT_KINDS = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+
 let debugSeq = 0
 // 移动端调试日志：同时打到 console 和 Rust 端日志文件（fire-and-forget，不阻塞流程）
 function mobileLog(...args: unknown[]) {
@@ -174,6 +177,25 @@ function handleDetected(id: string, detected: { kind: string; x0: number; y0: nu
       return 'func'
     }
   }
+  if (DIGIT_KINDS.has(detected.kind)) {
+    // 数字 → 渲染为文字
+    const cx = (detected.x0 + detected.x1) / 2
+    const cy = (detected.y0 + detected.y1) / 2
+    const h = Math.abs(detected.y1 - detected.y0)
+    const fontSize = Math.max(12, Math.round(h))
+    yDeleteItems('strokes', [id])
+    yPush('texts', [{
+      id: createId('t'),
+      x: cx,
+      y: cy + fontSize * 0.35,
+      text: detected.kind,
+      color: strokeColor,
+      size: fontSize,
+      seq: nextSeq(),
+      layer: strokeLayer,
+    }])
+    return 'text'
+  }
   yDeleteItems('strokes', [id])
   yPush('shapes', [{
     id: createId('sh'),
@@ -240,7 +262,7 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
   const bboxH = Math.max(...ys) - Math.min(...ys)
   // 1-2 笔且尺寸很小 → 大概率是手写数字/文字，避免被识别成随机形状
   const textLike = !smoothOnly && strokeIds.length <= 2 && Math.max(bboxW, bboxH) < TEXT_MAX_SIZE
-  if (textLike) mobileLog('text-like stroke (size=', Math.round(Math.max(bboxW, bboxH)), ') -> smooth only')
+  if (textLike) mobileLog('text-like stroke (size=', Math.round(Math.max(bboxW, bboxH)), ') -> digit/text only')
   if (smoothOnly) mobileLog('smooth-only mode -> skip shape recognition')
 
   const t1 = performance.now()
@@ -265,7 +287,7 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
   if (backendResult) {
     const result = backendResult
     const rawDetected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
-    const detected = smoothOnly || textLike ? null : rawDetected
+    let detected = smoothOnly ? null : rawDetected
     console.log(
       '[beautify] result: detected=',
       rawDetected
@@ -274,6 +296,16 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
       'pts=', result.points?.length,
     )
     const smoothed = result.points as Pt[]
+
+    if (detected && detected.confidence > 0.5 && allPts.length > 10) {
+      const isDigit = DIGIT_KINDS.has(detected.kind)
+      // 小笔迹只接受数字（渲染为文字），大笔迹只接受形状
+      const accept = textLike ? isDigit : !isDigit
+      if (!accept) {
+        console.log('[beautify] rejected mismatched kind (textLike=', textLike, 'kind=', detected.kind, ') -> smooth')
+        detected = null
+      }
+    }
 
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
       console.log('[beautify] accept shape:', detected.kind, 'conf=', detected.confidence.toFixed(3))

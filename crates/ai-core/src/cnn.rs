@@ -8,7 +8,7 @@ const C1: usize = 16; // conv1 输出通道
 const C2: usize = 32; // conv2 输出通道
 const C3: usize = 32; // conv3 输出通道
 const FC_HIDDEN: usize = 64;
-const NUM_CLASSES: usize = 13;
+const NUM_CLASSES: usize = 23;
 const K: usize = 3; // 卷积核大小
 
 pub struct CnnWeights {
