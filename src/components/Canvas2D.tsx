@@ -24,6 +24,7 @@ import {
   hitShape,
   hitTest,
   itemBounds,
+  distToPolygon,
   PEN_CURSOR,
   rasterizeLayerSync,
   roundRectPath,
@@ -302,6 +303,16 @@ export default function Canvas2D() {
       ctx.fillStyle = 'rgba(59,130,246,0.08)'
       ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
       ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
+    }
+    if (itNow?.type === 'lasso' && itNow.pts.length >= 2) {
+      // 自由选择套索：蓝色虚线路径（类似 PS 套索）
+      ctx.setLineDash([4 / zoom, 3 / zoom])
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2 / zoom
+      ctx.beginPath()
+      ctx.moveTo(itNow.pts[0].x, itNow.pts[0].y)
+      for (let i = 1; i < itNow.pts.length; i++) ctx.lineTo(itNow.pts[i].x, itNow.pts[i].y)
+      ctx.stroke()
     }
     ctx.restore()
 
@@ -682,8 +693,9 @@ export default function Canvas2D() {
       }
 
       if (!hit) {
+        // 空白处：取消选中并开始自由选择套索（平移交给手型工具）
         s.select([])
-        interactionRef.current = { type: 'pan', camStart: s.camera, start: { x: e.clientX, y: e.clientY } }
+        interactionRef.current = { type: 'lasso', pts: [w] }
         return
       }
       const items: ItemRef[] =
@@ -724,6 +736,12 @@ export default function Canvas2D() {
 
     if (it?.type === 'boxselect') {
       it.end = w
+      drawRef.current()
+      return
+    }
+
+    if (it?.type === 'lasso') {
+      it.pts.push(w)
       drawRef.current()
       return
     }
@@ -889,6 +907,50 @@ export default function Canvas2D() {
       }
       s.select(selected)
       s.setBoxSelecting(false)
+      interactionRef.current = null
+      drawRef.current()
+      return
+    }
+    if (it?.type === 'lasso') {
+      const s = useStore.getState()
+      const poly = it.pts
+      const selected: string[] = []
+      if (poly.length >= 3) {
+        const insideAny = (pts: Pt[]): boolean => pts.some((p) => distToPolygon(p, poly) === 0)
+        for (const st of s.doc.strokes) {
+          if (insideAny(st.points)) selected.push(st.id)
+        }
+        for (const sh of s.doc.shapes) {
+          const b = itemBounds(sh)
+          if (
+            insideAny([
+              { x: b.x0, y: b.y0 },
+              { x: b.x1, y: b.y0 },
+              { x: b.x0, y: b.y1 },
+              { x: b.x1, y: b.y1 },
+              { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 },
+            ])
+          ) {
+            selected.push(sh.id)
+          }
+        }
+        for (const t of s.doc.texts) {
+          if (t.attachId) continue
+          const b = itemBounds(t)
+          if (
+            insideAny([
+              { x: b.x0, y: b.y0 },
+              { x: b.x1, y: b.y0 },
+              { x: b.x0, y: b.y1 },
+              { x: b.x1, y: b.y1 },
+              { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 },
+            ])
+          ) {
+            selected.push(t.id)
+          }
+        }
+      }
+      s.select(selected)
       interactionRef.current = null
       drawRef.current()
       return
