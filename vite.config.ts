@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    envPrefix: ['VITE_', 'LOCAL_DATA_'],
+    envPrefix: ['VITE_', 'LOCAL_DATA_', 'ENABLE_TRAIN'],
     plugins: [
       react(),
       tailwindcss(),
