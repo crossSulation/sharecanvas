@@ -517,6 +517,37 @@ async function runTests(browser) {
     }
   })
 
+  await test('AI 美化：小尺寸手写（数字/文字）只平滑、不转形状', async () => {
+    // 画一个约 40px 的“7”（小尺寸手写，容易被误判为形状）
+    await clickTool(2) // pen
+    await page.mouse.move(200, 500)
+    await page.mouse.down()
+    await page.mouse.move(240, 500, { steps: 4 })
+    await page.mouse.move(220, 540, { steps: 4 })
+    await page.mouse.up()
+    await saveWait()
+    const before = await readDoc()
+    const beforeStrokes = before.strokes.length
+    const beforeShapes = before.shapes.length
+
+    await clickTool(0) // select
+    await click(220, 500) // 点中水平段
+    await wait(300)
+    const clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '小笔画应能选中并出现美化按钮')
+    await wait(1500)
+    const doc = await readDoc()
+    assert(
+      doc.strokes.length === beforeStrokes && doc.shapes.length === beforeShapes,
+      `小尺寸手写不应被转成形状（笔画 ${beforeStrokes}->${doc.strokes.length}，形状 ${beforeShapes}->${doc.shapes.length}）`,
+    )
+  })
+
   await test('橡皮擦：区域遮罩写入文档（不删除笔迹数据）', async () => {
     const before = (await readDoc()).strokes.length
     await clickTool(4)

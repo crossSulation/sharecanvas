@@ -174,6 +174,7 @@ classify_shape(points)
 - [x] P1：补齐 arrow / ellipse / star / pentagon / heptagon 真实数据（13 类全齐）
 - [ ] P2：hexagon / octagon 边界样本 —— 圆润六边形、五边形倾向六边形、七边形倾向八边形（各 30~50 条）
 - [ ] P3：置信度策略 —— 当前阈值 0.5 只挡低置信输入；高置信误判（0.70~0.99）阈值无法过滤，需靠数据修复；可选 top-2 二选一交互
+- [ ] P4：数字/文字类别（低优先级）—— 手写数字被高置信误判为形状（0→rect、1→line、2→triangle…，实测 conf 0.69~1.0）；当前已用前端“小尺寸（≤2 笔、<72px）只平滑 + AIPanel 仅平滑按钮”兜底；后续收集 0-9 手写样本、模型增加 digit/text 类并重训
 
 **训练侧小杠杆（次要）**
 
@@ -250,6 +251,10 @@ classify_shape(points)
 - [x] 手型工具支持双指捏合缩放：pinch 分支提到 pan 之前，双指优先缩放、单指仍平移（commit `5f7a79b`）
 - [x] 新增 `ENABLE_TRAIN` 环境变量控制头部训练入口显示（1/true 显示，缺省/0/false 隐藏）（commit `89420d5`）
 
+**AI 美化（L5）**
+
+- [x] 手写数字误识别保护：小尺寸（≤2 笔、包围盒 <72px）笔画判定为手写文字/数字，只平滑不转形状；AIPanel 新增“仅平滑”按钮；修复美化按钮 onClick 误传事件对象导致永远走仅平滑的 bug（见本次提交）
+
 **视频通话（L4）**
 
 - [x] 服务端 webrtc 信令转发修复：ws 文本帧以 Buffer 到达导致 `typeof === 'string'` 失效，兼容 string/Buffer（commit `9b796be`）
@@ -267,6 +272,7 @@ classify_shape(points)
 
 - 真机验证视频通话（L4 收尾）
 - hexagon / octagon 边界样本收集 + 重训（P2，目标整体 ≥98%）
+- 数字/文字类别训练（P4，低优先级）—— 先以“小尺寸只平滑”兜底，后续收集 0-9 样本并重训
 - 结构识别阶段二：纯规则 `detect_structure`（表格 / 流程图 / 图表）
 - M11 手写识别（OCR）为中期备选
 - 对外发布前：WS 房间认证 / Origin 检查等安全收尾

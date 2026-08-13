@@ -8,6 +8,9 @@ import type { Pt } from '../types'
 // Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效，需使用本机数据服务地址
 const AI_BASE = import.meta.env.LOCAL_DATA_URL ?? ''
 
+// 小于该尺寸的笔画视为手写文字/数字（如 0-9），只平滑、不转形状
+const TEXT_MAX_SIZE = 72
+
 let debugSeq = 0
 // 移动端调试日志：同时打到 console 和 Rust 端日志文件（fire-and-forget，不阻塞流程）
 function mobileLog(...args: unknown[]) {
@@ -185,7 +188,7 @@ function handleDetected(id: string, detected: { kind: string; x0: number; y0: nu
   return 'shape'
 }
 
-export async function beautifySelected(): Promise<number> {
+export async function beautifySelected(smoothOnly = false): Promise<number> {
   const t0 = performance.now()
   const s = useStore.getState()
   const strokeIds = s.selected.filter((id) => s.doc.strokes.some((st) => st.id === id))
@@ -231,6 +234,15 @@ export async function beautifySelected(): Promise<number> {
     'color:#8b5cf6;font-weight:bold', '', 'color:#3b82f6', '', 'color:#18181b;font-weight:bold', '', 'color:#18181b',
   )
 
+  const xs = allPts.map((p) => p.x)
+  const ys = allPts.map((p) => p.y)
+  const bboxW = Math.max(...xs) - Math.min(...xs)
+  const bboxH = Math.max(...ys) - Math.min(...ys)
+  // 1-2 笔且尺寸很小 → 大概率是手写数字/文字，避免被识别成随机形状
+  const textLike = !smoothOnly && strokeIds.length <= 2 && Math.max(bboxW, bboxH) < TEXT_MAX_SIZE
+  if (textLike) mobileLog('text-like stroke (size=', Math.round(Math.max(bboxW, bboxH)), ') -> smooth only')
+  if (smoothOnly) mobileLog('smooth-only mode -> skip shape recognition')
+
   const t1 = performance.now()
   let smoothedCount = 0
   let shapeCount = 0
@@ -252,15 +264,16 @@ export async function beautifySelected(): Promise<number> {
 
   if (backendResult) {
     const result = backendResult
+    const rawDetected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
+    const detected = smoothOnly || textLike ? null : rawDetected
     console.log(
       '[beautify] result: detected=',
-      result.detectedShape
-        ? `${result.detectedShape.kind} conf=${result.detectedShape.confidence.toFixed(3)}`
+      rawDetected
+        ? `${rawDetected.kind} conf=${rawDetected.confidence.toFixed(3)}`
         : 'null',
       'pts=', result.points?.length,
     )
     const smoothed = result.points as Pt[]
-    const detected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
 
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
       console.log('[beautify] accept shape:', detected.kind, 'conf=', detected.confidence.toFixed(3))
@@ -301,7 +314,7 @@ export async function beautifySelected(): Promise<number> {
     const smoothed = smoothPoints(allPts, 2)
     const detected = detectShape(smoothed)
 
-    if (detected && detected.confidence > 0.5 && allPts.length > 10) {
+    if (detected && !smoothOnly && !textLike && detected.confidence > 0.5 && allPts.length > 10) {
       const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
       if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
       console.log(

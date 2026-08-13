@@ -80,14 +80,15 @@ export default function AIPanel() {
   const hasStrokes = useStore((s) => s.selected.some((id) => s.doc.strokes.some((st) => st.id === id)))
   const hasMultiple = useStore((s) => s.selected.length >= 2)
 
-  const handleBeautify = async () => {
-    const n = await beautifySelected()
-    setMsg(n > 0 ? `已美化 ${n} 条笔画` : '请先选中笔画')
+  const handleBeautify = async (smoothOnly = false) => {
+    const n = await beautifySelected(smoothOnly)
+    setMsg(n > 0 ? (smoothOnly ? `已平滑 ${n} 条笔画` : `已美化 ${n} 条笔画`) : '请先选中笔画')
     setTimeout(() => setMsg(''), 2000)
   }
 
   const actions: { label: string; desc: string; icon: string; fn: () => void; show: boolean }[] = [
-    { label: '美化笔画', desc: '平滑 + 形状识别', icon: '✨', fn: handleBeautify, show: hasStrokes },
+    { label: '美化笔画', desc: '平滑 + 形状识别', icon: '✨', fn: () => handleBeautify(false), show: hasStrokes },
+    { label: '仅平滑', desc: '不识别形状，保留手写', icon: '≈', fn: () => handleBeautify(true), show: hasStrokes },
     { label: '水平居中', desc: 'X 轴中心对齐', icon: '↔', fn: () => { alignHorizontal(); setMsg('已水平居中'); setTimeout(() => setMsg(''), 1500) }, show: hasMultiple },
     { label: '垂直居中', desc: 'Y 轴中心对齐', icon: '↕', fn: () => { alignVertical(); setMsg('已垂直居中'); setTimeout(() => setMsg(''), 1500) }, show: hasMultiple },
     { label: '水平分布', desc: 'X 轴等距排列', icon: '⇉', fn: () => { distributeHorizontal(); setMsg('已水平等距分布'); setTimeout(() => setMsg(''), 1500) }, show: hasMultiple },
