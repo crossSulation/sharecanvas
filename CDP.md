@@ -161,3 +161,33 @@ const expr2 = `(async () => {
 模拟对端（浏览器）发信令：用 Node 连 `ws://192.168.19.118:5173/ws/<room>`，
 通过 y-websocket 同步 awareness 后发送 `{type:'webrtc', to, from, data}` 文本消息；
 服务端会把 webrtc 消息转发给房间内其他连接。
+
+## 实测：驱动“画矩形 -> 美化”流程（移动端推理调试）
+
+用 `scripts/cdp-mobile.mjs`，可以在平板 WebView 中用 CDP 鼠标事件画图并触发美化：
+
+```powershell
+$env:CDP_WS = "ws://localhost:9222/devtools/page/<TARGET_ID>"
+$env:POLY = "1"          # 1 = 一笔画完整矩形（中间不抬笔）；否则画 4 段
+node scripts/cdp-mobile.mjs flow 100,750,450,1000
+```
+
+`flow` 会自动：切回画笔 -> 一笔画矩形 -> 切换选择工具 -> 点“自由选择” ->
+点中笔画 -> 点 AIPanel“美化笔画”，并打印所有 console 日志。
+
+### 移动端日志位置
+
+- Web console 日志：logcat tag `Tauri/Console`
+- Rust 侧日志（`beautify_stroke` 分步、ONNX 分类结果）：logcat tag `app_lib`；
+  文件：`/data/user/0/com.sharecanvas.app.debug/logs/sharecanvas.log`
+  （需用 `adb shell run-as com.sharecanvas.app.debug tail -n 40 logs/sharecanvas.log` 读取）
+- 前端每个关键步骤会经 `debug_log` invoke 写入 Rust 日志文件（`[web]` 前缀）
+
+### 重要坑（日志实测结论）
+
+- Tauri invoke 在移动端 WebView 应优先走 `window.__TAURI_INTERNALS__.invoke`，
+  若挂起会在 20s 后报 TIMEOUT 并回退到 JS 平滑。
+- Tauri Rust 端 serde 应用 `#[serde(rename_all = "camelCase")]`，
+  否则 `detected_shape` 和 `func_params` 不能被前端 `detectedShape`/`funcParams` 读到。
+- Android 上不能把日志写到 `/data/local/tmp`（无权限），
+  应用 `app.path().app_log_dir()`（`/data/user/0/<pkg>/logs/`）。

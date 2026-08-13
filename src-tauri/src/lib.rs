@@ -2,9 +2,12 @@ use ai_core::{smooth_points, detect_shape, Point, onnx::OnnxSession};
 use serde::{Serialize, Deserialize};
 use std::sync::{Mutex, OnceLock};
 use std::path::PathBuf;
+use tauri::Manager;
 
 static LOG_FILE: OnceLock<PathBuf> = OnceLock::new();
 static AI_SESSION: OnceLock<Mutex<OnnxSession>> = OnceLock::new();
+// 内嵌模型：Android 上无法直接读取源码目录下的 models/，把模型打进二进制
+static MODEL_BIN: &[u8] = include_bytes!("../../models/sketch_classify.bin");
 
 fn log_dir() -> PathBuf {
     #[cfg(target_os = "android")]
@@ -68,6 +71,19 @@ fn get_session() -> &'static Mutex<OnnxSession> {
             }
         }
         if !loaded {
+            match session.load_model_bytes(MODEL_BIN) {
+                Ok(()) => {
+                    log::info!("ONNX model loaded from embedded bytes");
+                    write_log(&format!("ONNX model loaded from embedded bytes (status={:?})", session.status()));
+                    loaded = true;
+                }
+                Err(e) => {
+                    log::warn!("embedded model load failed: {}", e);
+                    write_log(&format!("embedded model load failed: {}", e));
+                }
+            }
+        }
+        if !loaded {
             let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_else(|_| "?".into());
             let msg = format!("ONNX model not found (cwd={}, candidates={})", cwd,
                 candidates.iter().map(|d| d.display().to_string()).collect::<Vec<_>>().join(", "));
@@ -78,6 +94,7 @@ fn get_session() -> &'static Mutex<OnnxSession> {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct SmoothResult {
     points: Vec<Point>,
     detected_shape: Option<ai_core::DetectedShape>,
@@ -91,13 +108,24 @@ struct AiStatus {
 
 #[tauri::command]
 fn beautify_stroke(strokes: Vec<Vec<Point>>) -> SmoothResult {
+    let t0 = std::time::Instant::now();
+    let total_pts: usize = strokes.iter().map(|s| s.len()).sum();
+    let entry = format!("beautify_stroke enter strokes={} pts={}", strokes.len(), total_pts);
+    log::info!("{}", entry);
+    write_log(&entry);
+
     let session = get_session().lock().unwrap();
+    let lock_ms = t0.elapsed().as_millis();
+    let entry = format!("beautify_stroke lock acquired in {}ms status={:?}", lock_ms, session.status());
+    log::info!("{}", entry);
+    write_log(&entry);
+
     let flat: Vec<Point> = strokes.iter().flatten().cloned().collect();
 
     let (smoothed, detected) = if session.status() == ai_core::onnx::ModelStatus::Ready {
         match session.classify_shape(&strokes) {
             Ok(Some(shape)) => {
-                let entry = format!("AI onnx kind={} conf={:.3}", shape.kind, shape.confidence);
+                let entry = format!("AI onnx kind={} conf={:.3} (classify {}ms)", shape.kind, shape.confidence, t0.elapsed().as_millis());
                 log::info!("{}", entry);
                 write_log(&entry);
                 (session.smooth_stroke(&flat).unwrap_or_else(|_| smooth_points(&flat, 2)), Some(shape))
@@ -107,7 +135,10 @@ fn beautify_stroke(strokes: Vec<Vec<Point>>) -> SmoothResult {
                 let d = detect_shape(&s);
                 if let Some(ref shape) = d {
                     let entry = format!("AI pure(onnx-fallback) kind={} conf={:.3}", shape.kind, shape.confidence);
+                    log::info!("{}", entry);
                     write_log(&entry);
+                } else {
+                    write_log("AI pure(onnx-fallback) kind=none");
                 }
                 (s.clone(), d)
             }
@@ -117,12 +148,34 @@ fn beautify_stroke(strokes: Vec<Vec<Point>>) -> SmoothResult {
         let d = detect_shape(&s);
         if let Some(ref shape) = d {
             let entry = format!("AI pure kind={} conf={:.3}", shape.kind, shape.confidence);
+            log::info!("{}", entry);
             write_log(&entry);
+        } else {
+            write_log("AI pure kind=none");
         }
         (s, d)
     };
 
+    let kind = detected.as_ref().map(|d| d.kind.as_str()).unwrap_or("none");
+    let conf = detected.as_ref().map(|d| d.confidence).unwrap_or(0.0);
+    let done = format!(
+        "beautify_stroke done in {}ms kind={} conf={:.3} pts_out={}",
+        t0.elapsed().as_millis(),
+        kind,
+        conf,
+        smoothed.len()
+    );
+    log::info!("{}", done);
+    write_log(&done);
+
     SmoothResult { points: smoothed, detected_shape: detected }
+}
+
+#[tauri::command]
+fn debug_log(msg: String) {
+    let line = format!("[web] {}", msg);
+    log::info!("{}", line);
+    write_log(&line);
 }
 
 #[tauri::command]
@@ -179,8 +232,14 @@ fn save_training_samples(samples: Vec<TrainSample>) -> Result<String, String> {
 pub fn run() {
   tauri::Builder::default()
     .plugin(tauri_plugin_shell::init())
-    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile, log_file_path, save_training_samples])
+    .invoke_handler(tauri::generate_handler![beautify_stroke, ai_status, is_mobile, log_file_path, save_training_samples, debug_log])
     .setup(|app| {
+      #[cfg(target_os = "android")]
+      let log_dir_path = app
+        .path()
+        .app_log_dir()
+        .unwrap_or_else(|_| log_dir());
+      #[cfg(not(target_os = "android"))]
       let log_dir_path = log_dir();
       std::fs::create_dir_all(&log_dir_path).ok();
       let log_path = log_dir_path.join("sharecanvas.log");

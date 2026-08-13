@@ -8,6 +8,38 @@ import type { Pt } from '../types'
 // Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效，需使用本机数据服务地址
 const AI_BASE = import.meta.env.LOCAL_DATA_URL ?? ''
 
+let debugSeq = 0
+// 移动端调试日志：同时打到 console 和 Rust 端日志文件（fire-and-forget，不阻塞流程）
+function mobileLog(...args: unknown[]) {
+  const line = `[beautify:${++debugSeq}] ${args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}`
+  console.log(line)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const internals = (window as any).__TAURI_INTERNALS__
+  if (internals && typeof internals.invoke === 'function') {
+    try {
+      void Promise.resolve(internals.invoke('debug_log', { msg: line })).catch(() => {})
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms)
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
 interface BackendAI {
   beautify_stroke(args: { strokes: { x: number; y: number }[][] }): Promise<{
     points: { x: number; y: number }[]
@@ -40,15 +72,30 @@ export async function showLogPath() {
   }
 }
 
+// 优先直接走 __TAURI_INTERNALS__.invoke（移动端 WebView 实测可用），
+// 失败时回退到 @tauri-apps/api/core 的 invoke
+function makeTauriBackend(): BackendAI {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const internals = (window as any).__TAURI_INTERNALS__
+  return {
+    beautify_stroke: (args) => {
+      if (internals && typeof internals.invoke === 'function') {
+        try {
+          return Promise.resolve(internals.invoke('beautify_stroke', args))
+        } catch (e) {
+          console.log('[beautify] internals.invoke threw:', String(e))
+        }
+      }
+      return import('@tauri-apps/api/core').then((m) => m.invoke('beautify_stroke', args))
+    },
+  }
+}
+
 async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
-  // 仅 Tauri 环境才尝试加载 @tauri-apps/api
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if ((window as any).__TAURI_INTERNALS__) {
     try {
-      const { invoke } = await import('@tauri-apps/api/core')
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const backend: BackendAI = { beautify_stroke: (args: any) => invoke('beautify_stroke', args) }
-      return { backend, name: 'tauri' }
+      return { backend: makeTauriBackend(), name: 'tauri' }
     } catch {
       /* Tauri API not available */
     }
@@ -142,11 +189,16 @@ export async function beautifySelected(): Promise<number> {
   const t0 = performance.now()
   const s = useStore.getState()
   const strokeIds = s.selected.filter((id) => s.doc.strokes.some((st) => st.id === id))
-  if (!strokeIds.length) return 0
+  mobileLog('selected=', s.selected.length, 'strokeIds=', strokeIds.length)
+  if (!strokeIds.length) {
+    mobileLog('no stroke selected, abort')
+    return 0
+  }
 
   const resolved = await getBackend()
   const backend = resolved?.backend ?? null
   const pathLabel = resolved?.name ?? 'js-fallback'
+  mobileLog('backend=', pathLabel)
 
   // 收集所有选中笔画的点，按笔画顺序拼接
   const allPts: Pt[] = []
@@ -183,12 +235,35 @@ export async function beautifySelected(): Promise<number> {
   let smoothedCount = 0
   let shapeCount = 0
 
+  let backendResult: { points: Pt[]; detectedShape: { kind: string; confidence: number } | null } | null = null
   if (backend) {
-    const result = await backend.beautify_stroke({ strokes: strokePts })
+    mobileLog('invoke begin', 'strokes=' + strokePts.length, 'pts=' + allPts.length)
+    try {
+      backendResult = await withTimeout(
+        backend.beautify_stroke({ strokes: strokePts }),
+        20000,
+        'beautify_stroke',
+      )
+      mobileLog('invoke ok in', Math.round(performance.now() - t1) + 'ms', 'kind=' + (backendResult.detectedShape?.kind ?? 'null'))
+    } catch (e) {
+      mobileLog('invoke fail:', String(e))
+    }
+  }
+
+  if (backendResult) {
+    const result = backendResult
+    console.log(
+      '[beautify] result: detected=',
+      result.detectedShape
+        ? `${result.detectedShape.kind} conf=${result.detectedShape.confidence.toFixed(3)}`
+        : 'null',
+      'pts=', result.points?.length,
+    )
     const smoothed = result.points as Pt[]
     const detected = result.detectedShape as { kind: string; x0: number; y0: number; x1: number; y1: number; confidence: number; funcParams?: number[] } | null
 
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
+      console.log('[beautify] accept shape:', detected.kind, 'conf=', detected.confidence.toFixed(3))
       const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
       // 删除其他笔画
       if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
@@ -199,6 +274,7 @@ export async function beautifySelected(): Promise<number> {
       if (outcome === 'func') smoothedCount++
       else shapeCount++
     } else {
+      console.log('[beautify] no shape accepted (detected=', detected?.kind ?? 'null', 'conf=', detected?.confidence?.toFixed(3) ?? '-', 'allPts=', allPts.length, ') -> smooth')
       // 未识别为形状 → 平滑合并点，更新到第一笔，删除其余
       // 按原始笔画顺序分配平滑点
       let offset = 0

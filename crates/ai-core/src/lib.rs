@@ -10,6 +10,7 @@ pub struct Point {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DetectedShape {
     pub kind: String,
     pub x0: f64,
@@ -43,7 +44,7 @@ pub fn smooth_points(points: &[Point], passes: usize) -> Vec<Point> {
     result
 }
 
-fn has_arrowhead(points: &[Point], first: &Point, last: &Point) -> bool {
+pub(crate) fn has_arrowhead(points: &[Point], first: &Point, last: &Point) -> bool {
     if points.len() < 10 { return false; }
     let dx = last.x - first.x;
     let dy = last.y - first.y;

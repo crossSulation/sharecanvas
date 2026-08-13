@@ -48,6 +48,22 @@ impl OnnxSession {
         Err(format!("sketch_classify.bin not found in {}", parent.display()))
     }
 
+    /// 从内存字节加载模型（Android 等场景使用内嵌模型）
+    pub fn load_model_bytes(&mut self, bytes: &[u8]) -> Result<(), String> {
+        self.status = ModelStatus::Loading;
+        match CnnWeights::load_bytes(bytes) {
+            Ok(w) => {
+                self.cnn = Some(w);
+                self.status = ModelStatus::Ready;
+                Ok(())
+            }
+            Err(e) => {
+                self.status = ModelStatus::Error;
+                Err(format!("Failed to load CNN weights: {}", e))
+            }
+        }
+    }
+
     pub fn smooth_stroke(&self, points: &[Point]) -> Result<Vec<Point>, String> {
         Ok(crate::smooth_points(points, 2))
     }
@@ -61,7 +77,18 @@ impl OnnxSession {
             "diamond", "star", "parallelogram", "hexagon", "trapezoid",
             "pentagon", "heptagon", "octagon",
         ];
-        let kind = labels.get(idx).copied().unwrap_or("rect");
+        let mut kind = labels.get(idx).copied().unwrap_or("rect");
+
+        // CNN 在 28×28 下容易把“小箭头头部”丢失、判成直线；
+        // 与纯算法 detect_shape 一致，线形时补判一次箭头，提升小头箭头识别
+        if kind == "line" {
+            let pts: Vec<Point> = strokes.iter().flatten().cloned().collect();
+            if pts.len() >= 4 {
+                if crate::has_arrowhead(&pts, &pts[0], &pts[pts.len() - 1]) {
+                    kind = "arrow";
+                }
+            }
+        }
 
         use crate::log_decision;
         log_decision("cnn", "sketch", kind, conf as f64);

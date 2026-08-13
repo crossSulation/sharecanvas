@@ -159,36 +159,47 @@ fn conv_block(inp: &[f32], w: &[f32], b: &[f32], in_c: usize, out_c: usize, h: u
 impl CnnWeights {
     pub fn load(path: &Path) -> Result<Self, String> {
         let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+        let mut buf = Vec::new();
+        f.read_to_end(&mut buf).map_err(|e| e.to_string())?;
+        Self::load_bytes(&buf)
+    }
 
-        let mut magic = [0u8; 4];
-        f.read_exact(&mut magic).map_err(|e| e.to_string())?;
+    /// 从字节切片解析 SCNN 权重（Android 等无法直接读文件时使用内嵌模型）
+    pub fn load_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let mut pos = 0usize;
+        let mut read_exact = |n: usize| -> Result<&[u8], String> {
+            if pos + n > bytes.len() {
+                return Err(format!("model file truncated at offset {pos}"));
+            }
+            let s = &bytes[pos..pos + n];
+            pos += n;
+            Ok(s)
+        };
+
+        let magic = read_exact(4)?;
         if &magic != b"SCNN" {
             return Err(format!(
                 "unsupported model format (magic {:?}) — retrain with scripts/export_models.py (2D CNN)",
                 String::from_utf8_lossy(&magic)
             ));
         }
-        let mut ver_buf = [0u8; 4];
-        f.read_exact(&mut ver_buf).map_err(|e| e.to_string())?;
-        let version = u32::from_le_bytes(ver_buf);
+        let ver_buf = read_exact(4)?;
+        let version = u32::from_le_bytes([ver_buf[0], ver_buf[1], ver_buf[2], ver_buf[3]]);
         if version != 1 {
             return Err(format!("unsupported model version {version}"));
         }
 
         let mut read_array = || -> Result<(Vec<f32>, Vec<usize>), String> {
-            let mut hdr = [0u8; 8];
-            f.read_exact(&mut hdr).map_err(|e| e.to_string())?;
+            let hdr = read_exact(8)?;
             let ndim = u32::from_le_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]) as usize;
             let _is_f32 = u32::from_le_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]);
             let mut shape = vec![0usize; ndim];
             for d in 0..ndim {
-                let mut b = [0u8; 4];
-                f.read_exact(&mut b).map_err(|e| e.to_string())?;
-                shape[d] = u32::from_le_bytes(b) as usize;
+                let b = read_exact(4)?;
+                shape[d] = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
             }
             let n = shape.iter().product::<usize>();
-            let mut raw = vec![0u8; n * 4];
-            f.read_exact(&mut raw).map_err(|e| e.to_string())?;
+            let raw = read_exact(n * 4)?;
             let data: Vec<f32> = raw.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
             Ok((data, shape))
         };
