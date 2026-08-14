@@ -215,6 +215,65 @@ const toolById = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<
   (typeof TOOLS)[number]
 >
 
+const MATH_TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
+  {
+    id: 'angle',
+    label: '角度标记',
+    icon: (
+      <Icon>
+        <path d="M4 20 14 20 14 6" />
+        <path d="M7 20a7 7 0 0 1 7-7" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'axes',
+    label: '坐标系',
+    icon: (
+      <Icon>
+        <path d="M3 15h18" />
+        <path d="m17 11 4 4-4 4" />
+        <path d="M9 3v18" />
+        <path d="m5 7 4-4 4 4" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'parabola',
+    label: '抛物线',
+    icon: (
+      <Icon>
+        <path d="M3 17c2-12 16-12 18 0" />
+      </Icon>
+    ),
+  },
+]
+
+function MathToolsPanel({ onClose }: { onClose: () => void }) {
+  const tool = useStore((s) => s.tool)
+  const setTool = useStore((s) => s.setTool)
+  return (
+    <div className="pointer-events-auto flex flex-col gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1.5 shadow-lg backdrop-blur">
+      <span className="px-1.5 pt-0.5 text-[10px] text-zinc-400">数学工具</span>
+      {MATH_TOOLS.map((mt) => (
+        <button
+          key={mt.id}
+          title={mt.label}
+          onClick={() => {
+            setTool(mt.id)
+            onClose()
+          }}
+          className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+            tool === mt.id ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100'
+          }`}
+        >
+          {mt.icon}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function ToolButton({ id, tool, setTool }: { id: Tool; tool: Tool; setTool: (t: Tool) => void }) {
   const t = toolById[id]
   return (
@@ -237,6 +296,7 @@ function DesktopToolbar() {
   const { t } = useTranslation()
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
+  const [mathSubOpen, setMathSubOpen] = useState(false)
   const color = useStore((s) => s.color)
   const setColor = useStore((s) => s.setColor)
   const size = useStore((s) => s.size)
@@ -276,6 +336,31 @@ function DesktopToolbar() {
             </div>
           </div>
         </div>
+      </div>
+      <div className="pointer-events-auto relative flex flex-col items-center gap-0.5">
+        <span className="text-[9px] leading-3 text-zinc-400">数学</span>
+        <button
+          title="数学工具"
+          onClick={() => setMathSubOpen(!mathSubOpen)}
+          className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${
+            MATH_TOOLS.some((mt) => mt.id === tool)
+              ? 'bg-zinc-900 text-white'
+              : 'text-zinc-500 hover:bg-zinc-100'
+          }`}
+        >
+          <Icon>
+            <path d="M5 19 19 5" />
+            <path d="M6 5h13v13" />
+          </Icon>
+        </button>
+        {mathSubOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setMathSubOpen(false)} />
+            <div className="absolute left-full top-0 z-40 ml-1">
+              <MathToolsPanel onClose={() => setMathSubOpen(false)} />
+            </div>
+          </>
+        )}
       </div>
 
       <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-zinc-200 bg-white/90 p-2.5 shadow-lg shadow-zinc-900/5 backdrop-blur">
@@ -351,6 +436,7 @@ function MobileToolbar() {
   const setBrushStyle = useStore((s) => s.setBrushStyle)
   const [expanded, setExpanded] = useState(false)
   const [selectSubOpen, setSelectSubOpen] = useState(false)
+  const [mathSubOpen, setMathSubOpen] = useState(false)
 
   const handleSelectClick = () => {
     if (tool === 'select') {
@@ -374,7 +460,7 @@ function MobileToolbar() {
   }
 
   return (
-    <div className="flex w-full flex-col items-center gap-1.5">
+    <div className="relative flex w-full flex-col items-center gap-1.5">
       {expanded && (
         <div className="pointer-events-auto flex max-w-full items-center gap-2 rounded-xl border border-zinc-200 bg-white/90 p-2 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain">
           <div className="flex items-center gap-0.5">
@@ -441,6 +527,20 @@ function MobileToolbar() {
             <ToolButton key={t.id} id={t.id} tool={tool} setTool={setTool} />
           )
         })}
+        <button
+          title="数学工具"
+          onClick={() => setMathSubOpen(!mathSubOpen)}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+            MATH_TOOLS.some((mt) => mt.id === tool)
+              ? 'bg-zinc-900 text-white'
+              : 'text-zinc-500 hover:bg-zinc-100'
+          }`}
+        >
+          <Icon>
+            <path d="M5 19 19 5" />
+            <path d="M6 5h13v13" />
+          </Icon>
+        </button>
         <div className="mx-0.5 h-7 w-px bg-zinc-200" />
         <button
           title={t('tools.more')}
@@ -456,6 +556,14 @@ function MobileToolbar() {
           </svg>
         </button>
       </div>
+      {mathSubOpen && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setMathSubOpen(false)} />
+          <div className="pointer-events-auto absolute bottom-full left-1/2 z-40 mb-2 -translate-x-1/2">
+            <MathToolsPanel onClose={() => setMathSubOpen(false)} />
+          </div>
+        </>
+      )}
       {selectSubOpen && (
         <>
           <div className="fixed inset-0 z-30" onClick={() => setSelectSubOpen(false)} />

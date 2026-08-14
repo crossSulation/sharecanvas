@@ -1,7 +1,10 @@
 import {
   brushPreset,
   drawLayerContent,
+  angleGeometry,
+  axesGeometry,
   polygonPoints,
+  parabolaPoints,
   shapeBounds,
   shapeEndpoints,
   strokeBounds,
@@ -184,6 +187,29 @@ function shapeSvg(sh: Shape, doc: Doc): string {
         `<line x1="${fmt(start.x)}" y1="${fmt(start.y)}" x2="${fmt(end.x)}" y2="${fmt(end.y)}" ${stroke}/>` +
         `<polygon points="${fmt(end.x)},${fmt(end.y)} ${fmt(p1.x)},${fmt(p1.y)} ${fmt(p2.x)},${fmt(p2.y)}" fill="${color}" stroke="none"/>`
       )
+    }
+    case 'angle': {
+      const g = angleGeometry(sh)
+      const arcD = g.arc.map((p, i) => `${i === 0 ? 'M' : 'L'}${fmt(p.x)} ${fmt(p.y)}`).join(' ')
+      return (
+        `<path d="M${fmt(g.v.x)} ${fmt(g.v.y)}L${fmt(g.ray1.x)} ${fmt(g.ray1.y)}M${fmt(g.v.x)} ${fmt(g.v.y)}L${fmt(g.ray2.x)} ${fmt(g.ray2.y)}${arcD}" ${stroke}/>`
+      )
+    }
+    case 'axes': {
+      const g = axesGeometry(sh)
+      const len = 10 + sh.size * 1.2
+      const right = `${fmt(g.x1)},${fmt(g.cy)} ${fmt(g.x1 - len)},${fmt(g.cy - len * 0.45)} ${fmt(g.x1 - len)},${fmt(g.cy + len * 0.45)}`
+      const up = `${fmt(g.cx)},${fmt(g.y0)} ${fmt(g.cx - len * 0.45)},${fmt(g.y0 + len)} ${fmt(g.cx + len * 0.45)},${fmt(g.y0 + len)}`
+      return (
+        `<line x1="${fmt(g.x0)}" y1="${fmt(g.cy)}" x2="${fmt(g.x1)}" y2="${fmt(g.cy)}" ${stroke}/>` +
+        `<line x1="${fmt(g.cx)}" y1="${fmt(g.y1)}" x2="${fmt(g.cx)}" y2="${fmt(g.y0)}" ${stroke}/>` +
+        `<polygon points="${right}" fill="${color}" stroke="none"/>` +
+        `<polygon points="${up}" fill="${color}" stroke="none"/>`
+      )
+    }
+    case 'parabola': {
+      const pts = parabolaPoints(sh)
+      return `<polyline points="${pts.map((p) => `${fmt(p.x)},${fmt(p.y)}`).join(' ')}" ${stroke}/>`
     }
     default: {
       const pts = polygonPoints(sh)

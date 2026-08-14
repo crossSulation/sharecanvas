@@ -1,4 +1,4 @@
-import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, type WorldRect } from "../lib/layerRender"
+import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, parabolaPoints, type WorldRect } from "../lib/layerRender"
 import { DEFAULT_LAYER_ID } from "../lib/yroom"
 import type { Doc, Pt, Shape, Stroke, TextItem } from "../types"
 
@@ -217,6 +217,18 @@ export function shapeDist(p: Pt, sh: Shape, doc?: Doc): number {
   if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'trapezoid' || sh.kind === 'pentagon' || sh.kind === 'hexagon' || sh.kind === 'heptagon' || sh.kind === 'octagon' || sh.kind === 'diamond' || sh.kind === 'parallelogram') {
     return distToPolygon(p, polygonPoints(sh))
   }
+  if (sh.kind === 'angle') {
+    const g = angleGeometry(sh)
+    return distToPolyline(p, [g.v, g.ray1, g.v, g.ray2, ...g.arc])
+  }
+  if (sh.kind === 'axes') {
+    const g = axesGeometry(sh)
+    return Math.min(
+      distToSegment(p, { x: g.x0, y: g.cy }, { x: g.x1, y: g.cy }),
+      distToSegment(p, { x: g.cx, y: g.y1 }, { x: g.cx, y: g.y0 }),
+    )
+  }
+  if (sh.kind === 'parabola') return distToPolyline(p, parabolaPoints(sh))
   const cx = (sh.x0 + sh.x1) / 2
   const cy = (sh.y0 + sh.y1) / 2
   const a_ = Math.max(0.001, Math.abs(sh.x1 - sh.x0) / 2)

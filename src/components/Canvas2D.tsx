@@ -648,6 +648,9 @@ export default function Canvas2D() {
       s.tool === 'heptagon' ||
       s.tool === 'octagon' ||
       s.tool === 'star' ||
+      s.tool === 'angle' ||
+      s.tool === 'axes' ||
+      s.tool === 'parabola' ||
       s.tool === 'line' ||
       s.tool === 'arrow'
     ) {

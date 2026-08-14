@@ -110,9 +110,9 @@ async function runTests(browser) {
     })
   const saveWait = () => wait(600)
 
-  await test('页面加载：画布与 19 个工具按钮存在', async () => {
+  await test('页面加载：画布与 20 个工具按钮存在', async () => {
     const n = await page.evaluate(() => document.querySelectorAll('button.h-9').length)
-    assert(n === 19, `工具按钮数量应为 19，实际 ${n}`)
+    assert(n === 20, `工具按钮数量应为 20，实际 ${n}`)
     const hasCanvas = await page.evaluate(() => !!document.querySelector('canvas'))
     assert(hasCanvas, '缺少画布元素')
   })
@@ -710,6 +710,46 @@ async function runTests(browser) {
     const kinds = doc.shapes.map((s) => s.kind)
     for (const [, kind] of cases) {
       assert(kinds.includes(kind), `缺少图形 ${kind}，现有 ${kinds.join(',')}`)
+    }
+  })
+
+  await test('数学工具：角度/坐标系/抛物线可画出并保存', async () => {
+    const items = [
+      ['角度标记', 'angle'],
+      ['坐标系', 'axes'],
+      ['抛物线', 'parabola'],
+    ]
+    const spots = [
+      [1000, 150, 1160, 250],
+      [1000, 300, 1160, 400],
+      [1000, 450, 1160, 550],
+    ]
+    for (let i = 0; i < items.length; i++) {
+      // 打开数学子菜单
+      const opened = await page.evaluate(() => {
+        const b = [...document.querySelectorAll('button')].find((el) => el.title === '数学工具')
+        if (!b) return false
+        b.click()
+        return true
+      })
+      assert(opened, '数学工具入口应存在')
+      await wait(250)
+      const clicked = await page.evaluate((title) => {
+        const b = [...document.querySelectorAll('button')].find((el) => el.title === title)
+        if (!b) return false
+        b.click()
+        return true
+      }, items[i][0])
+      assert(clicked, `数学工具 ${items[i][0]} 应可点击`)
+      await wait(200)
+      await drag(...spots[i])
+      await wait(200)
+    }
+    await saveWait()
+    const doc = await readDoc()
+    const kinds = doc.shapes.map((s) => s.kind)
+    for (const [, kind] of items) {
+      assert(kinds.includes(kind), `缺少数学图形 ${kind}，现有 ${kinds.join(',')}`)
     }
   })
 

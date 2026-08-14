@@ -202,6 +202,51 @@ export function polygonPoints(sh: Shape): Pt[] {
   }
 }
 
+// 数学图形：角度（两条射线 + 角弧）
+const ANGLE_APERTURE = (Math.PI * 50) / 180
+export function angleGeometry(sh: Shape): { v: Pt; ray1: Pt; ray2: Pt; arc: Pt[] } {
+  const v = { x: sh.x0, y: sh.y0 }
+  const ray1 = { x: sh.x1, y: sh.y1 }
+  const angle = Math.atan2(ray1.y - v.y, ray1.x - v.x)
+  const r = Math.max(1, Math.hypot(ray1.x - v.x, ray1.y - v.y))
+  const ray2 = { x: v.x + r * Math.cos(angle + ANGLE_APERTURE), y: v.y + r * Math.sin(angle + ANGLE_APERTURE) }
+  const arcR = r * 0.35
+  const arc: Pt[] = []
+  const n = 16
+  for (let i = 0; i <= n; i++) {
+    const a = angle + (ANGLE_APERTURE * i) / n
+    arc.push({ x: v.x + arcR * Math.cos(a), y: v.y + arcR * Math.sin(a) })
+  }
+  return { v, ray1, ray2, arc }
+}
+
+// 数学图形：坐标系（带箭头的横纵轴，交点 = bbox 中心）
+export function axesGeometry(sh: Shape): { cx: number; cy: number; x0: number; y0: number; x1: number; y1: number } {
+  const x0 = Math.min(sh.x0, sh.x1)
+  const x1 = Math.max(sh.x0, sh.x1)
+  const y0 = Math.min(sh.y0, sh.y1)
+  const y1 = Math.max(sh.y0, sh.y1)
+  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, x0, y0, x1, y1 }
+}
+
+// 数学图形：抛物线（∪，顶点在 bbox 底边中点，两端到顶边两角）
+export function parabolaPoints(sh: Shape): Pt[] {
+  const x0 = Math.min(sh.x0, sh.x1)
+  const x1 = Math.max(sh.x0, sh.x1)
+  const y0 = Math.min(sh.y0, sh.y1)
+  const y1 = Math.max(sh.y0, sh.y1)
+  const cx = (x0 + x1) / 2
+  const denom = (x0 - cx) * (x0 - cx)
+  const a = denom > 0.001 ? (y0 - y1) / denom : 0
+  const pts: Pt[] = []
+  const n = 48
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + ((x1 - x0) * i) / n
+    pts.push({ x, y: a * (x - cx) * (x - cx) + y1 })
+  }
+  return pts
+}
+
 function outlinePoints(sh: Shape): Pt[] {
   if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'trapezoid' || sh.kind === 'pentagon' || sh.kind === 'hexagon' || sh.kind === 'heptagon' || sh.kind === 'octagon' || sh.kind === 'diamond' || sh.kind === 'parallelogram') {
     return polygonPoints(sh)
@@ -231,6 +276,20 @@ function outlinePoints(sh: Shape): Pt[] {
     }
     return pts
   }
+  if (sh.kind === 'angle') {
+    const g = angleGeometry(sh)
+    return [g.v, g.ray1, g.ray2, ...g.arc]
+  }
+  if (sh.kind === 'axes') {
+    const g = axesGeometry(sh)
+    return [
+      { x: g.x0, y: g.cy },
+      { x: g.x1, y: g.cy },
+      { x: g.cx, y: g.y0 },
+      { x: g.cx, y: g.y1 },
+    ]
+  }
+  if (sh.kind === 'parabola') return parabolaPoints(sh)
   return []
 }
 
@@ -326,6 +385,35 @@ export function drawShape(ctx: Ctx2D, sh: Shape, doc: Doc): void {
     ctx.moveTo(pts[0].x, pts[0].y)
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
     ctx.closePath()
+  } else if (sh.kind === 'angle') {
+    const g = angleGeometry(sh)
+    ctx.moveTo(g.v.x, g.v.y)
+    ctx.lineTo(g.ray1.x, g.ray1.y)
+    ctx.moveTo(g.v.x, g.v.y)
+    ctx.lineTo(g.ray2.x, g.ray2.y)
+    ctx.moveTo(g.arc[0].x, g.arc[0].y)
+    for (let i = 1; i < g.arc.length; i++) ctx.lineTo(g.arc[i].x, g.arc[i].y)
+  } else if (sh.kind === 'axes') {
+    const g = axesGeometry(sh)
+    ctx.moveTo(g.x0, g.cy)
+    ctx.lineTo(g.x1, g.cy)
+    ctx.moveTo(g.cx, g.y1)
+    ctx.lineTo(g.cx, g.y0)
+    const len = 10 + sh.size * 1.2
+    // 横轴右箭头
+    ctx.moveTo(g.x1, g.cy)
+    ctx.lineTo(g.x1 - len, g.cy - len * 0.45)
+    ctx.moveTo(g.x1, g.cy)
+    ctx.lineTo(g.x1 - len, g.cy + len * 0.45)
+    // 纵轴上箭头（屏幕向上 = y0）
+    ctx.moveTo(g.cx, g.y0)
+    ctx.lineTo(g.cx - len * 0.45, g.y0 + len)
+    ctx.moveTo(g.cx, g.y0)
+    ctx.lineTo(g.cx + len * 0.45, g.y0 + len)
+  } else if (sh.kind === 'parabola') {
+    const pts = parabolaPoints(sh)
+    ctx.moveTo(pts[0].x, pts[0].y)
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y)
   } else {
     const { start, end } = shapeEndpoints(sh, doc)
     ctx.moveTo(start.x, start.y)
