@@ -110,9 +110,9 @@ async function runTests(browser) {
     })
   const saveWait = () => wait(600)
 
-  await test('页面加载：画布与 14 个工具按钮存在', async () => {
+  await test('页面加载：画布与 19 个工具按钮存在', async () => {
     const n = await page.evaluate(() => document.querySelectorAll('button.h-9').length)
-    assert(n === 14, `工具按钮数量应为 14，实际 ${n}`)
+    assert(n === 19, `工具按钮数量应为 19，实际 ${n}`)
     const hasCanvas = await page.evaluate(() => !!document.querySelector('canvas'))
     assert(hasCanvas, '缺少画布元素')
   })
@@ -670,7 +670,7 @@ async function runTests(browser) {
     assert(doc.strokes.length === before, `橡皮擦不应删除笔迹数据（${before} -> ${doc.strokes.length}）`)
   })
 
-  await test('8 种图形工具都能画出并保存', async () => {
+  await test('13 种图形工具都能画出并保存', async () => {
     const cases = [
       [6, 'rect'],
       [7, 'roundrect'],
@@ -678,8 +678,13 @@ async function runTests(browser) {
       [9, 'diamond'],
       [10, 'parallelogram'],
       [11, 'hexagon'],
-      [12, 'line'],
-      [13, 'arrow'],
+      [12, 'triangle'],
+      [13, 'pentagon'],
+      [14, 'heptagon'],
+      [15, 'octagon'],
+      [16, 'star'],
+      [17, 'line'],
+      [18, 'arrow'],
     ]
     const spots = [
       [150, 150, 310, 290],
@@ -690,6 +695,11 @@ async function runTests(browser) {
       [400, 450, 570, 560],
       [650, 450, 800, 520],
       [900, 450, 1060, 520],
+      [150, 620, 310, 700],
+      [350, 620, 510, 700],
+      [550, 620, 710, 700],
+      [750, 620, 910, 700],
+      [950, 620, 1110, 700],
     ]
     for (let i = 0; i < cases.length; i++) {
       await clickTool(cases[i][0])
@@ -738,7 +748,7 @@ async function runTests(browser) {
     await drag(500, 600, 650, 700)
     await clickTool(6)
     await drag(700, 600, 850, 700)
-    await clickTool(13)
+    await clickTool(18)
     await drag(575, 650, 775, 650)
     await saveWait()
     const doc = await readDoc()

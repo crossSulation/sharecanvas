@@ -643,6 +643,11 @@ export default function Canvas2D() {
       s.tool === 'diamond' ||
       s.tool === 'parallelogram' ||
       s.tool === 'hexagon' ||
+      s.tool === 'triangle' ||
+      s.tool === 'pentagon' ||
+      s.tool === 'heptagon' ||
+      s.tool === 'octagon' ||
+      s.tool === 'star' ||
       s.tool === 'line' ||
       s.tool === 'arrow'
     ) {

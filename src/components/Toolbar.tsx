@@ -132,6 +132,51 @@ const TOOLS: { id: Tool; label: string; icon: ReactNode }[] = [
     ),
   },
   {
+    id: 'triangle',
+    label: '三角形',
+    icon: (
+      <Icon>
+        <path d="M12 2.8 19.97 16.6H4.03z" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'pentagon',
+    label: '五边形',
+    icon: (
+      <Icon>
+        <path d="M12 2.8 20.75 9.16 17.41 19.44H6.59L3.25 9.16z" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'heptagon',
+    label: '七边形',
+    icon: (
+      <Icon>
+        <path d="M12 2.8 19.19 6.26 20.97 14.05 15.99 20.29H8.01L3.03 14.05 4.81 6.26z" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'octagon',
+    label: '八边形',
+    icon: (
+      <Icon>
+        <path d="M12 2.8 18.51 5.49 21.2 12 18.51 18.51 12 21.2 5.49 18.51 2.8 12 5.49 5.49z" />
+      </Icon>
+    ),
+  },
+  {
+    id: 'star',
+    label: '星形',
+    icon: (
+      <Icon>
+        <path d="M12 2.8 14.35 8.76 20.75 9.16 15.8 13.24 17.41 19.44 12 16 6.59 19.44 8.2 13.24 3.25 9.16 9.65 8.76z" />
+      </Icon>
+    ),
+  },
+  {
     id: 'line',
     label: '直线',
     icon: (
@@ -162,7 +207,7 @@ const BRUSH_OPTIONS = [
 const TOOL_GROUPS: { label: string; ids: Tool[] }[] = [
   { label: 'select', ids: ['select', 'hand'] },
   { label: 'draw', ids: ['pen', 'highlighter', 'eraser', 'text'] },
-  { label: 'shape', ids: ['rect', 'roundrect', 'ellipse', 'diamond', 'parallelogram', 'hexagon', 'line', 'arrow'] },
+  { label: 'shape', ids: ['rect', 'roundrect', 'ellipse', 'diamond', 'parallelogram', 'hexagon', 'triangle', 'pentagon', 'heptagon', 'octagon', 'star', 'line', 'arrow'] },
 ]
 
 const toolById = Object.fromEntries(TOOLS.map((t) => [t.id, t])) as Record<
