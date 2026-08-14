@@ -20,6 +20,7 @@ import {
   findItem,
   getResizeCursor,
   getSelectionBounds,
+  hitAxesHandle,
   hitResizeHandle,
   hitShape,
   hitTest,
@@ -29,7 +30,8 @@ import {
   rasterizeLayerSync,
   roundRectPath,
 } from './canvasHelpers'
-import type { Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
+import type { AxesHandle, Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
+import { axesParams } from '../lib/layerRender'
 
 export default function Canvas2D() {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -57,7 +59,7 @@ export default function Canvas2D() {
   const interactionRef = useRef<Interaction | null>(null)
   const spaceRef = useRef(false)
   const hoverRef = useRef<Pt | null>(null)
-  const hoverHandleRef = useRef<ResizeHandle | null>(null)
+  const hoverHandleRef = useRef<ResizeHandle | AxesHandle | null>(null)
   const viewportRef = useRef({ w: 0, h: 0 })
   const drawRef = useRef<() => void>(() => {})
   // 远端用户光标的平滑显示位置（世界坐标，逐帧向目标收敛）
@@ -276,12 +278,25 @@ export default function Canvas2D() {
 
         const handleSize = 8 / zoom
         const hs = handleSize / 2
-        const handlePts = [
-          { x: selBounds.x0, y: selBounds.y0 },
-          { x: selBounds.x1, y: selBounds.y0 },
-          { x: selBounds.x0, y: selBounds.y1 },
-          { x: selBounds.x1, y: selBounds.y1 },
-        ]
+        const single = st.selected.length === 1 ? findItem(st.doc, st.selected[0]) : null
+        const axesSh = single?.kind === 'shape' && (single.item as Shape).kind === 'axes' ? single.item as Shape : null
+        const handlePts = axesSh
+          ? (() => {
+              const p = axesParams(axesSh)
+              return [
+                { x: p.px0, y: p.oy },
+                { x: p.px1, y: p.oy },
+                { x: p.ox, y: p.py0 },
+                { x: p.ox, y: p.py1 },
+                { x: p.ox, y: p.oy },
+              ]
+            })()
+          : [
+              { x: selBounds.x0, y: selBounds.y0 },
+              { x: selBounds.x1, y: selBounds.y0 },
+              { x: selBounds.x0, y: selBounds.y1 },
+              { x: selBounds.x1, y: selBounds.y1 },
+            ]
         for (const hp of handlePts) {
           ctx.fillStyle = '#ffffff'
           ctx.fillRect(hp.x - hs, hp.y - hs, handleSize, handleSize)
@@ -677,6 +692,9 @@ export default function Canvas2D() {
         layer: s.activeLayerId,
         attachStartId,
       }
+      if (s.tool === 'axes') {
+        shape.params = [start.x, start.y, start.x, start.x, start.y, start.y]
+      }
       interactionRef.current = { type: 'shape', id: shape.id, start: w, end: w }
       suppressInvalidationRef.current = true
       gestureLayerIdRef.current = s.activeLayerId
@@ -687,6 +705,16 @@ export default function Canvas2D() {
       const hit = hitTest(w, s.doc, s.camera.zoom)
       const selBounds = getSelectionBounds(s.doc, s.selected, s.camera.zoom)
       const resizeHandle = selBounds ? hitResizeHandle(w, selBounds, s.camera.zoom) : null
+      const single = s.selected.length === 1 ? findItem(s.doc, s.selected[0]) : null
+      const axesSh = single?.kind === 'shape' && (single.item as Shape).kind === 'axes' ? single.item as Shape : null
+      const axesHandle = axesSh ? hitAxesHandle(w, axesSh, s.camera.zoom) : null
+
+      if (axesHandle && axesSh) {
+        interactionRef.current = { type: 'axesHandle', id: axesSh.id, handle: axesHandle, start: w }
+        gestureLayerIdRef.current = axesSh.layer ?? s.activeLayerId
+        suppressInvalidationRef.current = true
+        return
+      }
 
       if (resizeHandle && s.selected.length) {
         interactionRef.current = {
@@ -736,7 +764,13 @@ export default function Canvas2D() {
     const s = useStore.getState()
     if (s.tool === 'select' && s.selected.length) {
       const sb = getSelectionBounds(s.doc, s.selected, s.camera.zoom)
-      hoverHandleRef.current = sb ? hitResizeHandle(w, sb, s.camera.zoom) : null
+      const single = s.selected.length === 1 ? findItem(s.doc, s.selected[0]) : null
+      const axesSh = single?.kind === 'shape' && (single.item as Shape).kind === 'axes' ? single.item as Shape : null
+      hoverHandleRef.current = axesSh
+        ? hitAxesHandle(w, axesSh, s.camera.zoom)
+        : sb
+          ? hitResizeHandle(w, sb, s.camera.zoom)
+          : null
     } else {
       hoverHandleRef.current = null
     }
@@ -805,6 +839,18 @@ export default function Canvas2D() {
         const hit = hitShape(w, s.doc, s.camera.zoom)
         attachEndId = hit && hit.id !== cur.attachStartId ? hit.id : undefined
       }
+      if (cur?.kind === 'axes') {
+        const x0 = Math.min(it.start.x, w.x)
+        const x1 = Math.max(it.start.x, w.x)
+        const y0 = Math.min(it.start.y, w.y)
+        const y1 = Math.max(it.start.y, w.y)
+        yUpdateItem('shapes', it.id, {
+          x1: w.x,
+          y1: w.y,
+          params: [(x0 + x1) / 2, (y0 + y1) / 2, x0, x1, y0, y1],
+        })
+        return
+      }
       yUpdateItem('shapes', it.id, { x1: w.x, y1: w.y, attachEndId })
       return
     }
@@ -833,12 +879,16 @@ export default function Canvas2D() {
         const item = ref.item
         if (ref.kind === 'shape') {
           const sh = item as Shape
-          yUpdateItem('shapes', sh.id, {
+          const upd: Record<string, unknown> = {
             x0: sh.x0 * scaleX + offsetX,
             y0: sh.y0 * scaleY + offsetY,
             x1: sh.x1 * scaleX + offsetX,
             y1: sh.y1 * scaleY + offsetY,
-          })
+          }
+          if (sh.kind === 'axes' && sh.params) {
+            upd.params = sh.params.map((v, i) => (i % 2 === 0 ? v * scaleX + offsetX : v * scaleY + offsetY))
+          }
+          yUpdateItem('shapes', sh.id, upd)
         } else if (ref.kind === 'text') {
           const ti = item as TextItem
           yUpdateItem('texts', ti.id, {
@@ -861,6 +911,36 @@ export default function Canvas2D() {
       }
       return
     }
+    if (it?.type === 'axesHandle') {
+      const sh = s.doc.shapes.find((x) => x.id === it.id)
+      if (sh?.kind === 'axes') {
+        const p = axesParams(sh)
+        const np = { ...p }
+        if (it.handle === 'xr') np.px1 = Math.max(w.x, p.px0 + 4)
+        else if (it.handle === 'xl') np.px0 = Math.min(w.x, p.px1 - 4)
+        else if (it.handle === 'yt') np.py0 = Math.min(w.y, p.py1 - 4)
+        else if (it.handle === 'yb') np.py1 = Math.max(w.y, p.py0 + 4)
+        else if (it.handle === 'origin') {
+          const dx = w.x - it.start.x
+          const dy = w.y - it.start.y
+          np.ox += dx
+          np.oy += dy
+          np.px0 += dx
+          np.px1 += dx
+          np.py0 += dy
+          np.py1 += dy
+          it.start = w
+        }
+        yUpdateItem('shapes', sh.id, {
+          params: [np.ox, np.oy, np.px0, np.px1, np.py0, np.py1],
+          x0: np.px0,
+          y0: np.py0,
+          x1: np.px1,
+          y1: np.py1,
+        })
+      }
+      return
+    }
     if (it?.type === 'move') {
       const dx = w.x - it.start.x
       const dy = w.y - it.start.y
@@ -872,12 +952,16 @@ export default function Canvas2D() {
           yUpdateStrokePoints(ref.item.id, pts)
         } else if (ref.kind === 'shape') {
           const sh = ref.item as Shape
-          yUpdateItem('shapes', sh.id, {
+          const upd: Record<string, unknown> = {
             x0: sh.x0 + dx,
             y0: sh.y0 + dy,
             x1: sh.x1 + dx,
             y1: sh.y1 + dy,
-          })
+          }
+          if (sh.kind === 'axes' && sh.params) {
+            upd.params = sh.params.map((v, i) => (i % 2 === 0 ? v + dx : v + dy))
+          }
+          yUpdateItem('shapes', sh.id, upd)
         } else {
           const ti = ref.item as TextItem
           yUpdateItem('texts', ti.id, { x: ti.x + dx, y: ti.y + dy })
@@ -963,7 +1047,7 @@ export default function Canvas2D() {
       drawRef.current()
       return
     }
-    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'erase' || it?.type === 'move' || it?.type === 'resize') {
+    if (it?.type === 'stroke' || it?.type === 'shape' || it?.type === 'erase' || it?.type === 'move' || it?.type === 'resize' || it?.type === 'axesHandle') {
       if (it.type === 'shape') {
         if (Math.abs(it.end.x - it.start.x) < 3 && Math.abs(it.end.y - it.start.y) < 3) {
           yDeleteItems('shapes', [it.id])

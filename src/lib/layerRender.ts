@@ -220,13 +220,53 @@ export function angleGeometry(sh: Shape): { v: Pt; ray1: Pt; ray2: Pt; arc: Pt[]
   return { v, ray1, ray2, arc }
 }
 
-// 数学图形：坐标系（带箭头的横纵轴，交点 = bbox 中心）
-export function axesGeometry(sh: Shape): { cx: number; cy: number; x0: number; y0: number; x1: number; y1: number } {
+// 数学图形：坐标系（带箭头的横纵轴）。params = [ox, oy, px0, px1, py0, py1]
+//（原点 + X 轴范围 + Y 轴范围），无 params 时回退为 bbox 中心对称。
+export interface AxesParams { ox: number; oy: number; px0: number; px1: number; py0: number; py1: number }
+
+export function axesParams(sh: Shape): AxesParams {
+  const p = sh.params
   const x0 = Math.min(sh.x0, sh.x1)
   const x1 = Math.max(sh.x0, sh.x1)
   const y0 = Math.min(sh.y0, sh.y1)
   const y1 = Math.max(sh.y0, sh.y1)
-  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, x0, y0, x1, y1 }
+  if (p && p.length >= 6) {
+    return { ox: p[0], oy: p[1], px0: p[2], px1: p[3], py0: p[4], py1: p[5] }
+  }
+  const cx = (x0 + x1) / 2
+  const cy = (y0 + y1) / 2
+  return { ox: cx, oy: cy, px0: x0, px1: x1, py0: y0, py1: y1 }
+}
+
+export function axesGeometry(sh: Shape): { cx: number; cy: number; x0: number; y0: number; x1: number; y1: number } {
+  const p = axesParams(sh)
+  return { cx: p.ox, cy: p.oy, x0: p.px0, y0: p.py0, x1: p.px1, y1: p.py1 }
+}
+
+function niceStep(raw: number): number {
+  if (raw <= 0 || !isFinite(raw)) return 1
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)))
+  const m = raw / pow
+  const nice = m < 1.5 ? 1 : m < 3.5 ? 2 : m < 7.5 ? 5 : 10
+  return nice * pow
+}
+
+// 坐标轴刻度（跳过原点附近），返回每条刻度线两端点
+export function axesTicks(sh: Shape): { x: Pt; y: Pt }[] {
+  const p = axesParams(sh)
+  const tick = 6
+  const ticks: { x: Pt; y: Pt }[] = []
+  const stepX = niceStep((p.px1 - p.px0) / 8)
+  for (let v = Math.ceil(p.px0 / stepX) * stepX; v <= p.px1 - 0.001; v += stepX) {
+    if (Math.abs(v - p.ox) < stepX * 0.2) continue
+    ticks.push({ x: { x: v, y: p.oy - tick }, y: { x: v, y: p.oy + tick } })
+  }
+  const stepY = niceStep((p.py1 - p.py0) / 8)
+  for (let v = Math.ceil(p.py0 / stepY) * stepY; v <= p.py1 - 0.001; v += stepY) {
+    if (Math.abs(v - p.oy) < stepY * 0.2) continue
+    ticks.push({ x: { x: p.ox - tick, y: v }, y: { x: p.ox + tick, y: v } })
+  }
+  return ticks
 }
 
 // 数学图形：抛物线（∪，顶点在 bbox 底边中点，两端到顶边两角）
@@ -281,12 +321,12 @@ function outlinePoints(sh: Shape): Pt[] {
     return [g.v, g.ray1, g.ray2, ...g.arc]
   }
   if (sh.kind === 'axes') {
-    const g = axesGeometry(sh)
+    const p = axesParams(sh)
     return [
-      { x: g.x0, y: g.cy },
-      { x: g.x1, y: g.cy },
-      { x: g.cx, y: g.y0 },
-      { x: g.cx, y: g.y1 },
+      { x: p.px0, y: p.oy },
+      { x: p.px1, y: p.oy },
+      { x: p.ox, y: p.py0 },
+      { x: p.ox, y: p.py1 },
     ]
   }
   if (sh.kind === 'parabola') return parabolaPoints(sh)
@@ -410,6 +450,11 @@ export function drawShape(ctx: Ctx2D, sh: Shape, doc: Doc): void {
     ctx.lineTo(g.cx - len * 0.45, g.y0 + len)
     ctx.moveTo(g.cx, g.y0)
     ctx.lineTo(g.cx + len * 0.45, g.y0 + len)
+    // 刻度
+    for (const tk of axesTicks(sh)) {
+      ctx.moveTo(tk.x.x, tk.x.y)
+      ctx.lineTo(tk.y.x, tk.y.y)
+    }
   } else if (sh.kind === 'parabola') {
     const pts = parabolaPoints(sh)
     ctx.moveTo(pts[0].x, pts[0].y)

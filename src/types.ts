@@ -33,6 +33,8 @@ export interface Shape {
   attachStartId?: string
   attachEndId?: string
   layer?: string
+  /** 形状附加参数（如坐标系：origin + 各轴范围 [ox, oy, px0, px1, py0, py1]） */
+  params?: number[]
 }
 
 export interface TextItem {

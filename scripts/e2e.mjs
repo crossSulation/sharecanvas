@@ -753,6 +753,56 @@ async function runTests(browser) {
     }
   })
 
+  await test('坐标系：可独立调节 X 轴长度（轴端手柄）且有 params', async () => {
+    const toScreen = (wx, wy) =>
+      page.evaluate(([x, y]) => {
+        const cam = window.__sharecanvasCamera()
+        const rect = document.querySelector('canvas').getBoundingClientRect()
+        return {
+          x: rect.left + rect.width / 2 + (x - cam.x) * cam.zoom,
+          y: rect.top + rect.height / 2 + (y - cam.y) * cam.zoom,
+        }
+      }, [wx, wy])
+    const readAxes = () =>
+      page.evaluate(() => {
+        const d = window.__sharecanvasDoc()
+        const axes = d.shapes.find((s) => s.kind === 'axes')
+        return axes ? axes.params : null
+      })
+
+    // 画坐标系（避开已有图形的位置）
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.title === '数学工具')
+      if (b) b.click()
+    })
+    await wait(250)
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.title === '坐标系')
+      if (b) b.click()
+    })
+    await wait(200)
+    await drag(400, 300, 560, 400)
+    await saveWait()
+
+    // 选中（点 X 轴上、避开手柄的位置）
+    await clickTool(0)
+    let params = await readAxes()
+    assert(params && params.length === 6, `坐标系应有 params，实际 ${JSON.stringify(params)}`)
+    const clickPt = await toScreen(params[2] + (params[3] - params[2]) * 0.7, params[1])
+    await click(clickPt.x, clickPt.y)
+    await wait(300)
+
+    // 拖右端手柄拉长 X 轴
+    const handle = await toScreen(params[3], params[1])
+    await page.mouse.move(handle.x, handle.y)
+    await page.mouse.down()
+    await page.mouse.move(handle.x + 60, handle.y, { steps: 4 })
+    await page.mouse.up()
+    await saveWait()
+    const after = await readAxes()
+    assert(after && after[3] > params[3], `X 轴右端应拉长：${params[3]} -> ${after?.[3]}`)
+  })
+
   await test('文字工具：点击弹出输入框并聚焦、输入后提交', async () => {
     await clickTool(5)
     await click(1000, 300)

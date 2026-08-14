@@ -1,4 +1,4 @@
-import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, parabolaPoints, type WorldRect } from "../lib/layerRender"
+import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, axesParams, parabolaPoints, type WorldRect } from "../lib/layerRender"
 import { DEFAULT_LAYER_ID } from "../lib/yroom"
 import type { Doc, Pt, Shape, Stroke, TextItem } from "../types"
 
@@ -10,12 +10,14 @@ export type Interaction =
   | { type: 'erase'; r: number; path: Pt[]; last: number }
   | { type: 'move'; start: Pt; items: ItemRef[]; dx: number; dy: number }
   | { type: 'resize'; start: Pt; startBounds: { x0: number; y0: number; x1: number; y1: number }; handle: ResizeHandle }
+  | { type: 'axesHandle'; id: string; handle: AxesHandle; start: Pt }
   | { type: 'boxselect'; start: Pt; end: Pt }
   | { type: 'lasso'; pts: Pt[] }
   | { type: 'pan'; camStart: { x: number; y: number; zoom: number }; start: Pt }
   | { type: 'pinch'; prevMid: Pt; prevDist: number; camStart: { x: number; y: number; zoom: number } }
 
 export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e'
+export type AxesHandle = 'xl' | 'xr' | 'yt' | 'yb' | 'origin'
 
 export interface LayerCache {
   canvas: HTMLCanvasElement
@@ -119,11 +121,11 @@ export function drawGestureOverlay(
         )
       } else if (ref.kind === 'shape') {
         const sh = ref.item as Shape
-        drawShape(
-          ctx,
-          { ...sh, x0: sh.x0 + dx, y0: sh.y0 + dy, x1: sh.x1 + dx, y1: sh.y1 + dy },
-          doc,
-        )
+        const preview: Shape = { ...sh, x0: sh.x0 + dx, y0: sh.y0 + dy, x1: sh.x1 + dx, y1: sh.y1 + dy }
+        if (sh.kind === 'axes' && sh.params) {
+          preview.params = sh.params.map((v, i) => (i % 2 === 0 ? v + dx : v + dy))
+        }
+        drawShape(ctx, preview, doc)
       } else {
         const t = ref.item as TextItem
         ctx.fillStyle = t.color
@@ -382,6 +384,25 @@ export function hitResizeHandle(w: Pt, bounds: { x0: number; y0: number; x1: num
   return null
 }
 
+// 坐标轴独立调节手柄：X 左/右端、Y 上/下端、原点
+export function hitAxesHandle(w: Pt, sh: Shape, zoom: number): AxesHandle | null {
+  const p = axesParams(sh)
+  const hs = 8 / zoom / 2
+  const handles: { h: AxesHandle; x: number; y: number }[] = [
+    { h: 'xl', x: p.px0, y: p.oy },
+    { h: 'xr', x: p.px1, y: p.oy },
+    { h: 'yt', x: p.ox, y: p.py0 },
+    { h: 'yb', x: p.ox, y: p.py1 },
+    { h: 'origin', x: p.ox, y: p.oy },
+  ]
+  for (const h of handles) {
+    if (w.x >= h.x - hs && w.x <= h.x + hs && w.y >= h.y - hs && w.y <= h.y + hs) {
+      return h.h
+    }
+  }
+  return null
+}
+
 const RESIZE_CURSORS: Record<ResizeHandle, string> = {
   nw: 'nwse-resize',
   n: 'ns-resize',
@@ -393,6 +414,9 @@ const RESIZE_CURSORS: Record<ResizeHandle, string> = {
   se: 'nwse-resize',
 }
 
-export function getResizeCursor(h: ResizeHandle): string {
-  return RESIZE_CURSORS[h]
+export function getResizeCursor(h: ResizeHandle | AxesHandle): string {
+  if (h === 'xl' || h === 'xr') return 'ew-resize'
+  if (h === 'yt' || h === 'yb') return 'ns-resize'
+  if (h === 'origin') return 'move'
+  return RESIZE_CURSORS[h as ResizeHandle] ?? 'default'
 }

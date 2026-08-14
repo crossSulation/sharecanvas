@@ -3,6 +3,7 @@ import {
   drawLayerContent,
   angleGeometry,
   axesGeometry,
+  axesTicks,
   polygonPoints,
   parabolaPoints,
   shapeBounds,
@@ -200,9 +201,13 @@ function shapeSvg(sh: Shape, doc: Doc): string {
       const len = 10 + sh.size * 1.2
       const right = `${fmt(g.x1)},${fmt(g.cy)} ${fmt(g.x1 - len)},${fmt(g.cy - len * 0.45)} ${fmt(g.x1 - len)},${fmt(g.cy + len * 0.45)}`
       const up = `${fmt(g.cx)},${fmt(g.y0)} ${fmt(g.cx - len * 0.45)},${fmt(g.y0 + len)} ${fmt(g.cx + len * 0.45)},${fmt(g.y0 + len)}`
+      const ticks = axesTicks(sh)
+        .map((tk) => `<line x1="${fmt(tk.x.x)}" y1="${fmt(tk.x.y)}" x2="${fmt(tk.y.x)}" y2="${fmt(tk.y.y)}" ${stroke}/>`)
+        .join('')
       return (
         `<line x1="${fmt(g.x0)}" y1="${fmt(g.cy)}" x2="${fmt(g.x1)}" y2="${fmt(g.cy)}" ${stroke}/>` +
         `<line x1="${fmt(g.cx)}" y1="${fmt(g.y1)}" x2="${fmt(g.cx)}" y2="${fmt(g.y0)}" ${stroke}/>` +
+        ticks +
         `<polygon points="${right}" fill="${color}" stroke="none"/>` +
         `<polygon points="${up}" fill="${color}" stroke="none"/>`
       )
