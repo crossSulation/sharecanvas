@@ -27,7 +27,7 @@
 - [x] M8: 3D 模型导入（glTF/OBJ）
 - [x] M9: 图层混合模式（正片叠底/滤色等）
 - [x] M10: 选择工具增强（8 点缩放手柄 + 聚合包围盒 + 框选多选）
-- [ ] M11: 手写识别（OCR 笔迹转文字）
+- M11 手写识别（OCR）已移至 [TODO.md](TODO.md)
 
 ## 长期规划（3-6 月）
 
@@ -172,10 +172,8 @@ classify_shape(points)
 - [x] P0：rect 清理 + 标签错位修复 —— rect 留出测试 100%
 - [x] P1：parallelogram、diamond —— 已收集；diamond 模板改为拉长菱形（宽:高≈1.6:1）后 60%→100%
 - [x] P1：补齐 arrow / ellipse / star / pentagon / heptagon 真实数据（13 类全齐）
-- [ ] P2：hexagon / octagon 边界样本 —— 圆润六边形、五边形倾向六边形、七边形倾向八边形（各 30~50 条）
-- [ ] P3：置信度策略 —— 当前阈值 0.5 只挡低置信输入；高置信误判（0.70~0.99）阈值无法过滤，需靠数据修复；可选 top-2 二选一交互
 - [x] P4：数字/文字类别（已完成首轮）—— 训练集加入 MNIST + 手绘 0~9（train_data/）+ 合成数字模板，LABELS 扩为 23 类；留出真实测试 317 条 96.8%，数字 83~100%（“8”最弱，→6 混淆）；前端识别为数字 → 渲染为文字对象；剩余短板：数字 8 / 与 line/ellipse 边界样本（“1”↔line、“0”↔ellipse）
-- [ ] P2b：diamond 极端长宽比样本 —— 两头尖（竖/横 2:1~4:1）菱形各 30~50 条；当前 CNN 会把 1:3 竖菱形判为 triangle、3:1 横菱形判为 arrow/line，已用几何菱形拟合 `diamond_likeness` 兜底改判，数据补齐后 CNN 可直接识别
+> 未完成项（P2 / P2b / P3 / P4 续边界数据等）已移至 [TODO.md](TODO.md)
 
 **训练侧小杠杆（次要）**
 
@@ -215,9 +213,8 @@ classify_shape(points)
 
 **其他待完成**
 
-- 风格迁移（style transfer）
-- 文字转图片（text-to-image）
 - ONNX 模型架构升级（2D CNN 替代 MLP，已完成）
+- 其余待办（风格迁移 / 文字转图片等）已移至 [TODO.md](TODO.md)
 
 ---
 
@@ -250,7 +247,7 @@ classify_shape(points)
 - [x] 前端：模型识别为数字 → 渲染为文字对象（任意尺寸）；小笔迹仍只接受数字、拒绝形状误转（“0”小闭环被判 rect 时保持笔画）；AIPanel 仅平滑按钮保留
 - [x] “0”↔椭圆保护：正圆画法的“0”与椭圆像素级无法区分（实测 ellipse conf≈1.0），模型判 ellipse 但单笔、尺寸 <120px 时视为“0”，保持笔画不转椭圆（JS 兜底同规则）；e2e 新增“正圆 0 不转椭圆”用例
 - [x] 书写区域尺寸路由：单/双笔且包围盒 <120px → 数字路径（识别为数字则转文字，否则保持笔画）；≥120px → 形状路径（识别为数字则保持笔画，形状才转形状）；0↔椭圆由路由兜底（小正圆不再转椭圆）
-- [ ] 边界数据（P4 续）：合成边界变体（正圆0/窄8/斜体1）重训后数字留出集无提升、octagon 85.7%→64.3%，已回退模型；改为收集真实手绘边界样本（正圆“0”、细长“1”、手写“8”），TrainCollector 输入标签 0-9 描摹即可，补齐后重训
+- 边界数据（P4 续）待办已移至 [TODO.md](TODO.md)：合成边界变体重训无提升（octagon 85.7%→64.3%）已回退，改为收集真实手绘正圆“0”/细长“1”/手写“8”
 - [x] 部署：native addon 重编 + 服务端重启 + Android APK 重装（内嵌新 `sketch_classify.bin`）；真机验证手写“5”→文字“5”（conf 100%）
 
 ---
@@ -277,7 +274,7 @@ classify_shape(points)
 - [x] Tauri 环境 WebSocket 基址改用 `LOCAL_DATA_URL`（原 `tauri.localhost` 连不上）；移动端来电接听 UI + 常驻信令订阅 + 接听/拒绝（commit `9b796be`）
 - [x] Android 补 CAMERA / RECORD_AUDIO / MODIFY_AUDIO_SETTINGS 权限（缺 MODIFY_AUDIO_SETTINGS 导致 getUserMedia NotAllowedError）（commit `9b796be`）
 - [x] 任一端挂断/离开时两端自动结束通话：bye 信令 + `onconnectionstatechange` 兜底 + 清理无对端的僵尸通话（commit `06039aa`）
-- [ ] 待办：浏览器 ↔ 平板真实设备打一通视频，验证音视频流与画面
+- 待办：浏览器 ↔ 平板真实设备视频通话验证已移至 [TODO.md](TODO.md)
 
 **工具链**
 
@@ -286,13 +283,7 @@ classify_shape(points)
 
 **下一步（2026-08-13 起）**
 
-- 真机验证视频通话（L4 收尾）
-- hexagon / octagon 边界样本收集 + 重训（P2，目标整体 ≥98%）
-- 数字/文字类别训练（P4，低优先级）—— 先以“小尺寸只平滑”兜底，后续收集 0-9 样本并重训
-- 结构识别阶段二：纯规则 `detect_structure`（表格 / 流程图 / 图表）
-- M11 手写识别（OCR）为中期备选
-- 对外发布前：WS 房间认证 / Origin 检查等安全收尾
-- 盈利模式落地：按下方「盈利模式与产品策略」章节制定免费/付费边界
+> 未完成待办（L4 真机验证 / P2-P4 数据 / 结构识别 / OCR / 安全 / 盈利模式等）已全部移至 [TODO.md](TODO.md)
 
 ---
 
