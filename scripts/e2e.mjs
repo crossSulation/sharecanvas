@@ -622,6 +622,44 @@ async function runTests(browser) {
     )
   })
 
+  await test('AI 美化：手绘抛物线识别为 quadratic（保持笔画，不转成形状）', async () => {
+    // 画一条抛物线（约 260px 宽，弯度明显）
+    const pts = []
+    for (let x = -130; x <= 130; x += 10) pts.push([400 + x, 520 + 0.0035 * x * x])
+    await clickTool(2) // pen
+    await page.mouse.move(pts[0][0], pts[0][1])
+    await page.mouse.down()
+    for (const [x, y] of pts.slice(1)) {
+      await page.mouse.move(x, y)
+    }
+    await page.mouse.up()
+    await saveWait()
+    const before = await readDoc()
+    const beforeStrokes = before.strokes.length
+    const beforeShapes = before.shapes.length
+
+    await clickTool(0) // select
+    await click(400, 520) // 点中曲线顶点
+    await wait(300)
+    const clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '抛物线应能选中并出现美化按钮')
+    await wait(2000)
+    const doc = await readDoc()
+    assert(
+      doc.shapes.length === beforeShapes,
+      `抛物线不应被转成形状（形状 ${beforeShapes}->${doc.shapes.length}）`,
+    )
+    assert(
+      doc.strokes.length === beforeStrokes,
+      `抛物线应保持为笔画（笔画 ${beforeStrokes}->${doc.strokes.length}）`,
+    )
+  })
+
   await test('橡皮擦：区域遮罩写入文档（不删除笔迹数据）', async () => {
     const before = (await readDoc()).strokes.length
     await clickTool(4)

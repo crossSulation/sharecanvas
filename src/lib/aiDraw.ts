@@ -127,6 +127,26 @@ export function detectShape(points: Pt[]): DetectedShape | null {
     return { kind: isArrow ? 'arrow' : 'line', x0: first.x, y0: first.y, x1: last.x, y1: last.y, confidence: lineConf }
   }
 
+  // 函数曲线优先：R² 强拟合（线性 >0.92 / 二次 >0.88）与形状不冲突，
+  // 避免抛物线等被误判成形状类
+  const linConf = evalLinear(points)
+  if (linConf.r2 > 0.92) {
+    const range = w
+    const sx = range < 50 ? minX - 10 : minX
+    const ex = range < 50 ? maxX + 10 : maxX
+    return { kind: 'linear', x0: sx, y0: linConf.a * sx + linConf.b, x1: ex, y1: linConf.a * ex + linConf.b, confidence: linConf.r2, funcParams: [linConf.a, linConf.b] }
+  }
+
+  const quadConf = evalQuadratic(points)
+  if (quadConf.r2 > 0.88) {
+    const range = w
+    const sx = range < 50 ? minX - 5 : minX
+    const ex = range < 50 ? maxX + 5 : maxX
+    const sy = quadConf.a * sx * sx + quadConf.b * sx + quadConf.c
+    const ey = quadConf.a * ex * ex + quadConf.b * ex + quadConf.c
+    return { kind: 'quadratic', x0: sx, y0: sy, x1: ex, y1: ey, confidence: quadConf.r2, funcParams: [quadConf.a, quadConf.b, quadConf.c] }
+  }
+
   const aspectRatio = w / Math.max(h, 1)
 
   const diamondConf = evalDiamond(points, bbox)
@@ -166,24 +186,6 @@ export function detectShape(points: Pt[]): DetectedShape | null {
       const kind = sides === 5 ? 'pentagon' : sides === 7 ? 'heptagon' : 'octagon'
       return { kind, x0: minX, y0: minY, x1: maxX, y1: maxY, confidence: ngonConf }
     }
-  }
-
-  const linConf = evalLinear(points)
-  if (linConf.r2 > 0.92) {
-    const range = w
-    const sx = range < 50 ? minX - 10 : minX
-    const ex = range < 50 ? maxX + 10 : maxX
-    return { kind: 'linear', x0: sx, y0: linConf.a * sx + linConf.b, x1: ex, y1: linConf.a * ex + linConf.b, confidence: linConf.r2, funcParams: [linConf.a, linConf.b] }
-  }
-
-  const quadConf = evalQuadratic(points)
-  if (quadConf.r2 > 0.88) {
-    const range = w
-    const sx = range < 50 ? minX - 5 : minX
-    const ex = range < 50 ? maxX + 5 : maxX
-    const sy = quadConf.a * sx * sx + quadConf.b * sx + quadConf.c
-    const ey = quadConf.a * ex * ex + quadConf.b * ex + quadConf.c
-    return { kind: 'quadratic', x0: sx, y0: sy, x1: ex, y1: ey, confidence: quadConf.r2, funcParams: [quadConf.a, quadConf.b, quadConf.c] }
   }
 
   return null
@@ -307,16 +309,20 @@ function evalHexagon(points: Pt[], bbox: { x0: number; y0: number; x1: number; y
 function evalLinear(points: Pt[]): { a: number; b: number; r2: number } {
   const n = points.length
   if (n < 3) return { a: 0, b: 0, r2: 0 }
+  // 数值稳定性：先居中（世界坐标可能远离 0，normal equations 病态）
+  const mx = points.reduce((s, p) => s + p.x, 0) / n
+  const my = points.reduce((s, p) => s + p.y, 0) / n
   let sx = 0, sy = 0, sxy = 0, sx2 = 0
   for (const p of points) {
-    sx += p.x; sy += p.y
-    sxy += p.x * p.y; sx2 += p.x * p.x
+    const x = p.x - mx, y = p.y - my
+    sx += x; sy += y
+    sxy += x * y; sx2 += x * x
   }
   const denom = n * sx2 - sx * sx
   if (Math.abs(denom) < 1e-12) return { a: 0, b: 0, r2: 0 }
   const a = (n * sxy - sx * sy) / denom
-  const b = (sy - a * sx) / n
-  const yMean = sy / n
+  const b = (sy - a * sx) / n - a * mx + my // 反居中：y = a(x-mx) + b' + my → y = ax + b
+  const yMean = my
   let ssRes = 0, ssTot = 0
   for (const p of points) {
     const yPred = a * p.x + b
@@ -327,22 +333,30 @@ function evalLinear(points: Pt[]): { a: number; b: number; r2: number } {
   return { a, b, r2: Math.max(0, r2) }
 }
 
-function evalQuadratic(points: Pt[]): { a: number; b: number; c: number; r2: number } {
+function fitQuadratic(points: Pt[]): { a: number; b: number; c: number; r2: number } {
   const n = points.length
   if (n < 5) return { a: 0, b: 0, c: 0, r2: 0 }
+  // 数值稳定性：先居中（世界坐标可能远离 0，x² 达 1e5，normal equations 病态）
+  const mx = points.reduce((s, p) => s + p.x, 0) / n
+  const my = points.reduce((s, p) => s + p.y, 0) / n
   let sx = 0, sx2 = 0, sx3 = 0, sx4 = 0
   let sy = 0, sxy = 0, sx2y = 0
   for (const p of points) {
-    const x = p.x, x2 = x * x, x3 = x2 * x, x4 = x3 * x
+    const x = p.x - mx, x2 = x * x, x3 = x2 * x, x4 = x3 * x
+    const y = p.y - my
     sx += x; sx2 += x2; sx3 += x3; sx4 += x4
-    sy += p.y; sxy += x * p.y; sx2y += x2 * p.y
+    sy += y; sxy += x * y; sx2y += x2 * y
   }
   const d = n * (sx2 * sx4 - sx3 * sx3) - sx * (sx * sx4 - sx2 * sx3) + sx2 * (sx * sx3 - sx2 * sx2)
   if (Math.abs(d) < 1e-12) return { a: 0, b: 0, c: 0, r2: 0 }
-  const a = (n * (sx2 * sx2y - sx3 * sxy) - sx * (sx * sx2y - sx3 * sy) + sx2 * (sx * sxy - sx2 * sy)) / d
-  const b = (n * (sx4 * sxy - sx3 * sx2y) - sx * (sx4 * sy - sx2 * sx2y) + sx2 * (sx3 * sy - sx * sx2y)) / d
-  const c = (sy - a * sx2 - b * sx) / n
-  const yMean = sy / n
+  const ap = (n * (sx2 * sx2y - sx3 * sxy) - sx * (sx * sx2y - sx3 * sy) + sx2 * (sx * sxy - sx2 * sy)) / d
+  const bp = (n * (sx4 * sxy - sx3 * sx2y) - sx * (sx4 * sy - sx2 * sx2y) + sx2 * (sx3 * sy - sx * sx2y)) / d
+  const cp = (sy - ap * sx2 - bp * sx) / n
+  // 反居中：y = ap(x-mx)^2 + bp(x-mx) + cp + my
+  const a = ap
+  const b = bp - 2 * ap * mx
+  const c = ap * mx * mx - bp * mx + cp + my
+  const yMean = my
   let ssRes = 0, ssTot = 0
   for (const p of points) {
     const yPred = a * p.x * p.x + b * p.x + c
@@ -351,6 +365,30 @@ function evalQuadratic(points: Pt[]): { a: number; b: number; c: number; r2: num
   }
   const r2 = ssTot < 1e-12 ? 0 : 1 - ssRes / ssTot
   return { a, b, c, r2: Math.max(0, r2) }
+}
+
+function evalQuadratic(points: Pt[]): { a: number; b: number; c: number; r2: number } {
+  if (points.length < 5) return { a: 0, b: 0, c: 0, r2: 0 }
+  // 离群点剔除：笔尖误触/起点跳变会显著拉低 R²，最多丢弃 3% 残差最大的点再拟合
+  const maxDrop = Math.ceil(points.length * 0.03)
+  let pts = points
+  let best = fitQuadratic(pts)
+  for (let k = 0; k < maxDrop; k++) {
+    if (best.r2 > 0.88 || pts.length < 6) break
+    let worst = 0
+    let worstErr = -1
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]!
+      const err = Math.abs(p.y - (best.a * p.x * p.x + best.b * p.x + best.c))
+      if (err > worstErr) {
+        worstErr = err
+        worst = i
+      }
+    }
+    pts = pts.filter((_, i) => i !== worst)
+    best = fitQuadratic(pts)
+  }
+  return best
 }
 
 function evalTrapezoid(points: Pt[], bbox: { x0: number; y0: number; x1: number; y1: number }): number {

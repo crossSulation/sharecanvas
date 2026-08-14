@@ -198,6 +198,13 @@ ws.on('open', async () => {
             const a = (i / 48) * Math.PI * 2
             poly.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r])
           }
+        } else if (process.env.POLY_SHAPE === 'para') {
+          // 抛物线 y = 0.0035 x²（约 260px 宽）
+          const s = Number(process.env.DIGIT_SCALE || 130)
+          poly = []
+          for (let x = -s; x <= s; x += s / 13) {
+            poly.push([cx + x, cy + 0.0035 * x * x])
+          }
         } else {
           poly = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
         }
@@ -221,6 +228,15 @@ ws.on('open', async () => {
       }
       await sleep(500)
       console.log('STEP draw done')
+      if (process.env.DUMP_STROKE === '1') {
+        const dump = await evalJson(`(() => {
+          const d = window.__sharecanvasDoc()
+          const last = d.strokes[d.strokes.length - 1]
+          return JSON.stringify(last ? last.points : [])
+        })()`)
+        console.log('STROKE_DUMP', dump)
+        return
+      }
 
       // 2) 点击选择工具（底部工具栏第 1 个 h-9 按钮）
       const selRect = JSON.parse(await evalJson(`(() => {
@@ -250,6 +266,9 @@ ws.on('open', async () => {
       if (process.env.POLY_SHAPE === '0') {
         hitX = Math.round((x0 + x1) / 2)
         hitY = Math.round((y0 + y1) / 2 - Number(process.env.DIGIT_SCALE || 50))
+      } else if (process.env.POLY_SHAPE === 'para') {
+        hitX = Math.round((x0 + x1) / 2)
+        hitY = Math.round((y0 + y1) / 2)
       }
       await clickAt(hitX, hitY)
       console.log('STEP stroke clicked', hitX, hitY)

@@ -65,6 +65,7 @@ pub struct JsPoint { pub x: f64, pub y: f64 }
 pub struct JsDetectedShape {
     pub kind: String, pub x0: f64, pub y0: f64,
     pub x1: f64, pub y1: f64, pub confidence: f64,
+    pub func_params: Option<Vec<f64>>,
 }
 
 #[napi(object)]
@@ -113,6 +114,7 @@ pub fn beautify_stroke(strokes: Vec<Vec<JsPoint>>) -> JsSmoothResult {
         detected_shape: detected.map(|d| JsDetectedShape {
             kind: d.kind, x0: d.x0, y0: d.y0,
             x1: d.x1, y1: d.y1, confidence: d.confidence,
+            func_params: d.func_params,
         }),
         onnx_used,
     }

@@ -120,6 +120,12 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
         });
     }
 
+    // 函数曲线优先：R² 强拟合（线性 >0.92 / 二次 >0.88）与形状不冲突
+    //（抛物线对三角形的拟合虽可过阈值，但三角形/矩形/椭圆对二次拟合 R² 很低），
+    // 提前检测避免抛物线被误判成三角形等形状。
+    if let Some(s) = try_linear(points, bbox) { return Some(s); }
+    if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
+
     if let Some(s) = try_triangle(points, bbox) { return Some(s); }
     if let Some(s) = try_diamond(points, bbox) { return Some(s); }
     if let Some(s) = try_rect(points, bbox) { return Some(s); }
@@ -129,8 +135,6 @@ pub fn detect_shape(points: &[Point]) -> Option<DetectedShape> {
     if let Some(s) = try_hexagon(points, bbox) { return Some(s); }
     if let Some(s) = try_star(points, bbox) { return Some(s); }
     if let Some(s) = try_polygon(points, bbox) { return Some(s); }
-    if let Some(s) = try_linear(points, bbox) { return Some(s); }
-    if let Some(s) = try_quadratic(points, bbox) { return Some(s); }
 
     log_decision("pure","any", "none", 0.0);
     None
@@ -581,17 +585,21 @@ fn try_polygon(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedS
 fn eval_linear(points: &[Point]) -> (f64, f64, f64) {
     let n = points.len() as f64;
     if n < 3.0 { return (0.0, 0.0, 0.0); }
+    // 数值稳定性：先居中（世界坐标可能远离 0，normal equations 病态）
+    let mx = points.iter().map(|p| p.x).sum::<f64>() / n;
+    let my = points.iter().map(|p| p.y).sum::<f64>() / n;
     let mut sx = 0.0f64; let mut sy = 0.0f64;
     let mut sxy = 0.0f64; let mut sx2 = 0.0f64;
     for p in points {
-        sx += p.x; sy += p.y;
-        sxy += p.x * p.y; sx2 += p.x * p.x;
+        let x = p.x - mx; let y = p.y - my;
+        sx += x; sy += y;
+        sxy += x * y; sx2 += x * x;
     }
     let denom = n * sx2 - sx * sx;
     if denom.abs() < f64::EPSILON { return (0.0, 0.0, 0.0); }
     let a = (n * sxy - sx * sy) / denom;
-    let b = (sy - a * sx) / n;
-    let y_mean = sy / n;
+    let b = (sy - a * sx) / n - a * mx + my; // 反居中：y = a(x-mx) + b' + my → y = ax + b
+    let y_mean = my;
     let mut ss_res = 0.0f64; let mut ss_tot = 0.0f64;
     for p in points {
         let y_pred = a * p.x + b;
@@ -602,30 +610,68 @@ fn eval_linear(points: &[Point]) -> (f64, f64, f64) {
     (a, b, r2.max(0.0))
 }
 
-fn eval_quadratic(points: &[Point]) -> (f64, f64, f64, f64) {
-    let n = points.len() as f64;
+fn fit_quadratic(pts: &[Point]) -> (f64, f64, f64, f64) {
+    let n = pts.len() as f64;
     if n < 5.0 { return (0.0, 0.0, 0.0, 0.0); }
+    // 数值稳定性：先居中（世界坐标可能远离 0，x² 达 1e5，normal equations 病态）
+    let mx = pts.iter().map(|p| p.x).sum::<f64>() / n;
+    let my = pts.iter().map(|p| p.y).sum::<f64>() / n;
     let mut sx = 0.0f64; let mut sx2 = 0.0f64; let mut sx3 = 0.0f64; let mut sx4 = 0.0f64;
     let mut sy = 0.0f64; let mut sxy = 0.0f64; let mut sx2y = 0.0f64;
-    for p in points {
-        let x = p.x; let x2 = x * x; let x3 = x2 * x; let x4 = x3 * x;
+    for p in pts {
+        let x = p.x - mx; let x2 = x * x; let x3 = x2 * x; let x4 = x3 * x;
+        let y = p.y - my;
         sx += x; sx2 += x2; sx3 += x3; sx4 += x4;
-        sy += p.y; sxy += x * p.y; sx2y += x2 * p.y;
+        sy += y; sxy += x * y; sx2y += x2 * y;
     }
     let d = n * (sx2 * sx4 - sx3 * sx3) - sx * (sx * sx4 - sx2 * sx3) + sx2 * (sx * sx3 - sx2 * sx2);
     if d.abs() < f64::EPSILON { return (0.0, 0.0, 0.0, 0.0); }
-    let a = (n * (sx2 * sx2y - sx3 * sxy) - sx * (sx * sx2y - sx3 * sy) + sx2 * (sx * sxy - sx2 * sy)) / d;
-    let b = (n * (sx4 * sxy - sx3 * sx2y) - sx * (sx4 * sy - sx2 * sx2y) + sx2 * (sx3 * sy - sx * sx2y)) / d;
-    let c = (sy - a * sx2 - b * sx) / n;
-    let y_mean = sy / n;
+    let ap = (n * (sx2 * sx2y - sx3 * sxy) - sx * (sx * sx2y - sx3 * sy) + sx2 * (sx * sxy - sx2 * sy)) / d;
+    let bp = (n * (sx4 * sxy - sx3 * sx2y) - sx * (sx4 * sy - sx2 * sx2y) + sx2 * (sx3 * sy - sx * sx2y)) / d;
+    let cp = (sy - ap * sx2 - bp * sx) / n;
+    // 反居中：y = ap(x-mx)^2 + bp(x-mx) + cp + my
+    let a = ap;
+    let b = bp - 2.0 * ap * mx;
+    let c = ap * mx * mx - bp * mx + cp + my;
+    let y_mean = my;
     let mut ss_res = 0.0f64; let mut ss_tot = 0.0f64;
-    for p in points {
+    for p in pts {
         let y_pred = a * p.x * p.x + b * p.x + c;
         ss_res += (p.y - y_pred).powi(2);
         ss_tot += (p.y - y_mean).powi(2);
     }
     let r2 = if ss_tot < f64::EPSILON { 0.0 } else { 1.0 - ss_res / ss_tot };
     (a, b, c, r2.max(0.0))
+}
+
+fn eval_quadratic(points: &[Point]) -> (f64, f64, f64, f64) {
+    if points.len() < 5 {
+        return (0.0, 0.0, 0.0, 0.0);
+    }
+    // 离群点剔除：笔尖误触/起点跳变会显著拉低 R²（实测 R² 0.86 → 去 1 点后 1.0），
+    // 最多丢弃 3% 残差最大的点再拟合；圆弧等真实曲线 R² 仍高，阈值 0.88 不变。
+    let max_drop = ((points.len() as f64) * 0.03).ceil() as usize;
+    let mut pts: Vec<Point> = points.to_vec();
+    let mut best = fit_quadratic(&pts);
+    for _ in 0..max_drop {
+        if best.3 > 0.88 || pts.len() < 6 {
+            break;
+        }
+        let (a, b, c, _) = best;
+        let worst = pts
+            .iter()
+            .enumerate()
+            .max_by(|(_, p), (_, q)| {
+                let dp = (p.y - (a * p.x * p.x + b * p.x + c)).abs();
+                let dq = (q.y - (a * q.x * q.x + b * q.x + c)).abs();
+                dp.partial_cmp(&dq).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        pts.remove(worst);
+        best = fit_quadratic(&pts);
+    }
+    best
 }
 
 fn try_linear(points: &[Point], bbox: (f64, f64, f64, f64)) -> Option<DetectedShape> {

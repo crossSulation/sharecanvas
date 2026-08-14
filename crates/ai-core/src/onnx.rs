@@ -104,6 +104,16 @@ impl OnnxSession {
         use crate::log_decision;
         log_decision("cnn", "sketch", kind, conf as f64);
 
+        // CNN 没有函数类（linear/quadratic）：纯算法对函数的 R² 拟合强时优先返回函数，
+        // 避免抛物线等被强制映射成 triangle/hexagon 等形状类。
+        let pts: Vec<Point> = strokes.iter().flatten().cloned().collect();
+        if let Some(pure) = crate::detect_shape(&pts) {
+            if pure.kind == "linear" || pure.kind == "quadratic" {
+                log_decision("cnn", "function", &pure.kind, pure.confidence);
+                return Ok(Some(pure));
+            }
+        }
+
         let xs: Vec<f64> = strokes.iter().flatten().map(|p| p.x).collect();
         let ys: Vec<f64> = strokes.iter().flatten().map(|p| p.y).collect();
 
