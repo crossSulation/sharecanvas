@@ -473,13 +473,13 @@ async function runTests(browser) {
   })
 
   await test('AI 美化：选中手绘笔画后美化按钮出现，点击后美化成功', async () => {
-    // 画一个近似矩形的笔画
+    // 画一个较大的近似矩形笔画（>120px，走形状识别路径）
     await clickTool(2) // pen
     await page.mouse.move(200, 200)
     await page.mouse.down()
-    await page.mouse.move(300, 200, { steps: 5 })
-    await page.mouse.move(300, 300, { steps: 5 })
-    await page.mouse.move(200, 300, { steps: 5 })
+    await page.mouse.move(350, 200, { steps: 5 })
+    await page.mouse.move(350, 350, { steps: 5 })
+    await page.mouse.move(200, 350, { steps: 5 })
     await page.mouse.move(200, 200, { steps: 5 })
     await page.mouse.up()
     await saveWait()
