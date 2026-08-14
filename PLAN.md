@@ -174,7 +174,7 @@ classify_shape(points)
 - [x] P1：补齐 arrow / ellipse / star / pentagon / heptagon 真实数据（13 类全齐）
 - [ ] P2：hexagon / octagon 边界样本 —— 圆润六边形、五边形倾向六边形、七边形倾向八边形（各 30~50 条）
 - [ ] P3：置信度策略 —— 当前阈值 0.5 只挡低置信输入；高置信误判（0.70~0.99）阈值无法过滤，需靠数据修复；可选 top-2 二选一交互
-- [ ] P4：数字/文字类别（低优先级）—— 手写数字被高置信误判为形状（0→rect、1→line、2→triangle…，实测 conf 0.69~1.0）；当前已用前端“小尺寸（≤2 笔、<72px）只平滑 + AIPanel 仅平滑按钮”兜底；后续收集 0-9 手写样本、模型增加 digit/text 类并重训
+- [x] P4：数字/文字类别（已完成首轮）—— 训练集加入 MNIST + 手绘 0~9（train_data/）+ 合成数字模板，LABELS 扩为 23 类；留出真实测试 317 条 96.8%，数字 83~100%（“8”最弱，→6 混淆）；前端识别为数字 → 渲染为文字对象；剩余短板：数字 8 / 与 line/ellipse 边界样本（“1”↔line、“0”↔ellipse）
 - [ ] P2b：diamond 极端长宽比样本 —— 两头尖（竖/横 2:1~4:1）菱形各 30~50 条；当前 CNN 会把 1:3 竖菱形判为 triangle、3:1 横菱形判为 arrow/line，已用几何菱形拟合 `diamond_likeness` 兜底改判，数据补齐后 CNN 可直接识别
 
 **训练侧小杠杆（次要）**
@@ -238,6 +238,18 @@ classify_shape(points)
 - [x] 安装 NDK 28.2.13676358 + JDK 21（Gradle 8.14 不支持 JDK 25）+ Rust Android 目标
 - [x] 绕过 Windows 符号链接权限限制：cargo 直接编译 .so → 复制到 jniLibs → gradle 跳过 rust 任务打包 → adb 安装；`adb reverse` / WiFi 直连 192.168.19.118:5173 联调
 - [x] devUrl 与前端数据地址统一为 `LOCAL_DATA_URL` 环境变量（`192.168.19.118:5173`）；HMR 通过 `server.hmr.host` 从该变量推导，修复 tauri.localhost origin 下 WebSocket 连不上问题
+
+---
+
+### 近期改动记录（2026-08-14）
+
+**数字识别（L5 / P4）**
+
+- [x] 训练集加入 MNIST（`samples/` 缓存原始字节，gitignore）+ 手绘数字 `train_data/0~9.jsonl` + 合成数字模板；`LABELS` 扩为 23 类（13 形状 + 0-9），`cnn.rs`/`onnx.rs` 同步到 23 类
+- [x] 重训 23 类模型：留出真实测试 317 条 **96.8%**（Python 与 Rust `recognize_test` 完全一致）；数字 83~100%（“8”→6 混淆 2 条最弱），形状类大多 100%
+- [x] 前端：模型识别为数字 → 渲染为文字对象（任意尺寸）；小笔迹仍只接受数字、拒绝形状误转（“0”小闭环被判 rect 时保持笔画）；AIPanel 仅平滑按钮保留
+- [x] “0”↔椭圆保护：正圆画法的“0”与椭圆像素级无法区分（实测 ellipse conf≈1.0），模型判 ellipse 但单笔、尺寸 <120px 时视为“0”，保持笔画不转椭圆（JS 兜底同规则）；e2e 新增“正圆 0 不转椭圆”用例
+- [x] 部署：native addon 重编 + 服务端重启 + Android APK 重装（内嵌新 `sketch_classify.bin`）；真机验证手写“5”→文字“5”（conf 100%）
 
 ---
 

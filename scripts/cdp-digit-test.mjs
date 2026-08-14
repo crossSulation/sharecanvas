@@ -38,7 +38,8 @@ try {
   const state = () =>
     page.evaluate(() => {
       const d = window.__sharecanvasDoc()
-      return { strokes: d.strokes.length, shapes: d.shapes.length }
+      const last = d.texts[d.texts.length - 1]
+      return { strokes: d.strokes.length, shapes: d.shapes.length, texts: d.texts.length, lastText: last ? last.text : null }
     })
   const clickTool = async (i) => {
     await page.evaluate((idx) => document.querySelectorAll('button.h-9')[idx].click(), i)

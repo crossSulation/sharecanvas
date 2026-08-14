@@ -517,7 +517,7 @@ async function runTests(browser) {
     }
   })
 
-  await test('AI 美化：小尺寸手写（数字/文字）只平滑、不转形状', async () => {
+  await test('AI 美化：小尺寸手写（数字）转为文字或保留笔画，不转形状', async () => {
     // 画一个约 40px 的“7”（小尺寸手写，容易被误判为形状）
     await clickTool(2) // pen
     await page.mouse.move(200, 500)
@@ -529,6 +529,7 @@ async function runTests(browser) {
     const before = await readDoc()
     const beforeStrokes = before.strokes.length
     const beforeShapes = before.shapes.length
+    const beforeTexts = before.texts.length
 
     await clickTool(0) // select
     await click(220, 500) // 点中水平段
@@ -543,8 +544,49 @@ async function runTests(browser) {
     await wait(1500)
     const doc = await readDoc()
     assert(
-      doc.strokes.length === beforeStrokes && doc.shapes.length === beforeShapes,
-      `小尺寸手写不应被转成形状（笔画 ${beforeStrokes}->${doc.strokes.length}，形状 ${beforeShapes}->${doc.shapes.length}）`,
+      doc.shapes.length === beforeShapes,
+      `小尺寸手写不应被转成形状（形状 ${beforeShapes}->${doc.shapes.length}）`,
+    )
+    const digitAsText = doc.texts.length > beforeTexts
+    const keptAsStroke = doc.strokes.length === beforeStrokes && doc.texts.length === beforeTexts
+    assert(
+      digitAsText || keptAsStroke,
+      `小尺寸数字应转为文字或保留笔画（笔画 ${beforeStrokes}->${doc.strokes.length}，文字 ${beforeTexts}->${doc.texts.length}，形状 ${beforeShapes}->${doc.shapes.length}）`,
+    )
+  })
+
+  await test('AI 美化：正圆画法的“0”不转椭圆（保持笔画或转文字）', async () => {
+    // 画一个约 100px 的正圆（w≈h），与椭圆像素级相似
+    const cx = 400
+    const cy = 500
+    const r = 50
+    await clickTool(2) // pen
+    await page.mouse.move(cx + r, cy)
+    await page.mouse.down()
+    for (let i = 1; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2
+      await page.mouse.move(cx + Math.cos(a) * r, cy + Math.sin(a) * r)
+    }
+    await page.mouse.up()
+    await saveWait()
+    const beforeShapes = (await readDoc()).shapes.length
+
+    await clickTool(0) // select
+    await click(cx + r, cy) // 点中圆周
+    await wait(300)
+    const clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '正圆“0”应能选中并出现美化按钮')
+    await wait(2000)
+    const doc = await readDoc()
+    const newShapes = doc.shapes.slice(beforeShapes)
+    assert(
+      newShapes.length === 0,
+      `正圆“0”不应被转成椭圆形状，实际 ${JSON.stringify(newShapes.map((s) => s.kind))}`,
     )
   })
 

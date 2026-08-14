@@ -181,9 +181,26 @@ ws.on('open', async () => {
         const steps = 14
         const cx = (x0 + x1) / 2
         const cy = (y0 + y1) / 2
-        const poly = process.env.POLY_SHAPE === 'diamond'
-          ? [[cx, y0], [x1, cy], [cx, y1], [x0, cy], [cx, y0]]
-          : [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        let poly
+        if (process.env.POLY_SHAPE === 'diamond') {
+          poly = [[cx, y0], [x1, cy], [cx, y1], [x0, cy], [cx, y0]]
+        } else if (process.env.POLY_SHAPE === '5') {
+          // 数字 5 骨架（与 export_models.py DIGIT_TEMPLATES['5'] 一致）
+          const s = Number(process.env.DIGIT_SCALE || 90)
+          const cy5 = y0 + s / 2
+          const t = [[0.25, -0.5], [-0.40, -0.5], [-0.40, -0.12], [0.05, -0.12], [0.28, 0.10], [-0.05, 0.5], [-0.35, 0.5]]
+          poly = t.map(([vx, vy]) => [cx + vx * s, cy5 + vy * s])
+        } else if (process.env.POLY_SHAPE === '0') {
+          // 正圆“0”（w≈h，与椭圆像素级相似）
+          const r = Number(process.env.DIGIT_SCALE || 50)
+          poly = []
+          for (let i = 0; i <= 48; i++) {
+            const a = (i / 48) * Math.PI * 2
+            poly.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r])
+          }
+        } else {
+          poly = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+        }
         await send('Input.dispatchMouseEvent', { type: 'mousePressed', x: x0, y: y0, button: 'left', clickCount: 1 })
         for (let s = 0; s < poly.length - 1; s++) {
           const [ax, ay] = poly[s]
@@ -227,9 +244,13 @@ ws.on('open', async () => {
       await clickAt(freeRect.x, freeRect.y)
       console.log('STEP freeSelect clicked', JSON.stringify(freeRect))
 
-      // 4) 点击矩形上边缘中点（命中笔画线体）
-      const hitX = Math.round((x0 + x1) / 2)
-      const hitY = y0
+      // 4) 点击笔画线体（不同形状命中点不同）
+      let hitX = Math.round((x0 + x1) / 2)
+      let hitY = y0
+      if (process.env.POLY_SHAPE === '0') {
+        hitX = Math.round((x0 + x1) / 2)
+        hitY = Math.round((y0 + y1) / 2 - Number(process.env.DIGIT_SCALE || 50))
+      }
       await clickAt(hitX, hitY)
       console.log('STEP stroke clicked', hitX, hitY)
 
