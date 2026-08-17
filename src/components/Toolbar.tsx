@@ -301,6 +301,8 @@ function DesktopToolbar() {
   const setColor = useStore((s) => s.setColor)
   const size = useStore((s) => s.size)
   const setSize = useStore((s) => s.setSize)
+  const eraserSize = useStore((s) => s.eraserSize)
+  const setEraserSize = useStore((s) => s.setEraserSize)
   const brushStyle = useStore((s) => s.brushStyle)
   const setBrushStyle = useStore((s) => s.setBrushStyle)
 
@@ -409,15 +411,27 @@ function DesktopToolbar() {
             </button>
           ))}
         </div>
-        <input
-          type="range"
-          min={2}
-          max={40}
-          value={size}
-          onChange={(e) => setSize(Number(e.target.value))}
-          className="w-20"
-          title="笔刷大小"
-        />
+        {tool === 'eraser' ? (
+          <input
+            type="range"
+            min={8}
+            max={120}
+            value={eraserSize}
+            onChange={(e) => setEraserSize(Number(e.target.value))}
+            className="w-20"
+            title={`橡皮擦大小 ${eraserSize}`}
+          />
+        ) : (
+          <input
+            type="range"
+            min={2}
+            max={40}
+            value={size}
+            onChange={(e) => setSize(Number(e.target.value))}
+            className="w-20"
+            title="笔刷大小"
+          />
+        )}
       </div>
     </>
   )
@@ -432,6 +446,8 @@ function MobileToolbar() {
   const setColor = useStore((s) => s.setColor)
   const size = useStore((s) => s.size)
   const setSize = useStore((s) => s.setSize)
+  const eraserSize = useStore((s) => s.eraserSize)
+  const setEraserSize = useStore((s) => s.setEraserSize)
   const brushStyle = useStore((s) => s.brushStyle)
   const setBrushStyle = useStore((s) => s.setBrushStyle)
   const [expanded, setExpanded] = useState(false)
@@ -498,7 +514,11 @@ function MobileToolbar() {
               </button>
             ))}
           </div>
-          <input type="range" min={2} max={40} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-16" title="笔刷大小" />
+          {tool === 'eraser' ? (
+            <input type="range" min={8} max={120} value={eraserSize} onChange={(e) => setEraserSize(Number(e.target.value))} className="w-16" title={`橡皮擦大小 ${eraserSize}`} />
+          ) : (
+            <input type="range" min={2} max={40} value={size} onChange={(e) => setSize(Number(e.target.value))} className="w-16" title="笔刷大小" />
+          )}
         </div>
       )}
       <div className="pointer-events-auto flex max-w-full flex-nowrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white/95 p-1 shadow-lg backdrop-blur overflow-x-auto overscroll-x-contain

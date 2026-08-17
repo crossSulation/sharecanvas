@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { collab } from '../lib/collab'
 import { createId } from '../lib/id'
 import { nextSeq } from '../lib/seq'
-import { tickFps, recordDrawTime } from '../lib/perf'
+import { tickFps, recordDrawTime, getPerfStats } from '../lib/perf'
 import { WorkerPool } from '../lib/workerPool'
 import { DEFAULT_LAYER_ID, yDeleteItems, yPush, yUpdateItem, yUpdateStrokePoints } from '../lib/yroom'
 import {
@@ -33,6 +33,12 @@ import {
 import type { AxesHandle, Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
 import { axesParams } from '../lib/layerRender'
 
+// 移动端高 DPR 会让画布/光栅化分辨率成平方放大，Canvas 2D 软件渲染扛不住。
+// 封顶到 2，视觉几乎无损，但像素量大幅下降（如 2.25→2 减 21%，3→2 减 56%）。
+function effectiveDpr(): number {
+  return Math.min(window.devicePixelRatio || 1, 2)
+}
+
 export default function Canvas2D() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -44,6 +50,8 @@ export default function Canvas2D() {
   const pendingRasterRef = useRef(new Map<string, RasterParams>())
   const suppressInvalidationRef = useRef(false)
   const gestureLayerIdRef = useRef<string | null>(null)
+  const lastStrokeSyncRef = useRef(0)
+  const lastRasterPathRef = useRef<string | null>(null)
   const doc = useStore((s) => s.doc)
   const camera = useStore((s) => s.camera)
   const tool = useStore((s) => s.tool)
@@ -97,6 +105,7 @@ export default function Canvas2D() {
       pool.rasterize(p).then(
         (result) => {
           inflightRef.current.delete(result.layerId)
+          lastRasterPathRef.current = result.path ?? '2d'
           let cache = layerCacheRef.current.get(result.layerId)
           if (!cache) {
             cache = {
@@ -152,7 +161,7 @@ export default function Canvas2D() {
     if (!ctx) return
     const st = useStore.getState()
     const { w, h } = viewportRef.current
-    const dpr = window.devicePixelRatio || 1
+    const dpr = effectiveDpr()
     const zoom = st.camera.zoom
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
@@ -332,7 +341,7 @@ export default function Canvas2D() {
     ctx.restore()
 
     if (st.tool === 'eraser' && hoverRef.current) {
-      const r = eraserRadius(st.size) * zoom
+      const r = eraserRadius(st.eraserSize) * zoom
       const sp = toScreen(hoverRef.current)
       ctx.beginPath()
       ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2)
@@ -378,7 +387,7 @@ export default function Canvas2D() {
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return
-    const dpr = window.devicePixelRatio || 1
+    const dpr = effectiveDpr()
     const ro = new ResizeObserver(() => {
       const rect = container.getBoundingClientRect()
       viewportRef.current = { w: rect.width, h: rect.height }
@@ -418,14 +427,51 @@ export default function Canvas2D() {
       () => new Worker(new URL('../lib/render.worker.ts', import.meta.url), { type: 'module' }),
     )
     poolRef.current = pool
-    ;(window as unknown as Record<string, unknown>).__sharecanvasWorkerInfo = () => ({
-      ok: pool.isAvailable,
-      count: pool.workerCount,
-    })
+    const diag = {
+      workerOk: pool.isAvailable,
+      workerCount: pool.workerCount,
+      offscreenCanvas: typeof OffscreenCanvas !== 'undefined',
+      dpr: window.devicePixelRatio || 1,
+      effDpr: effectiveDpr(),
+      hardwareConcurrency: navigator.hardwareConcurrency || 0,
+      userAgent: navigator.userAgent,
+    }
+    ;(window as unknown as Record<string, unknown>).__sharecanvasDiag = diag
+    ;(window as unknown as Record<string, unknown>).__sharecanvasWorkerInfo = () => diag
+    console.log('[diag] renderer:', JSON.stringify(diag))
+    // 移动端无法开控制台，把诊断信息写到 Rust 日志文件（通过 log_file_path 读取）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const internals = (window as any).__TAURI_INTERNALS__
+    if (internals && typeof internals.invoke === 'function') {
+      try {
+        void Promise.resolve(internals.invoke('debug_log', { msg: `[diag] renderer: ${JSON.stringify(diag)}` })).catch(() => {})
+      } catch {
+        /* ignore */
+      }
+    }
     return () => {
       pool.terminate()
       poolRef.current = null
     }
+  }, [])
+
+  // 周期上报性能指标到 Rust 日志（移动端无法开 ?debug overlay，靠日志读 fps/drawAvg）
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const s = getPerfStats()
+      const line = `[perf] fps=${s.fps} drawAvg=${s.drawAvg}ms drawMax=${s.drawMax}ms raster=${lastRasterPathRef.current ?? '-'}`
+      console.log(line)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const internals = (window as any).__TAURI_INTERNALS__
+      if (internals && typeof internals.invoke === 'function') {
+        try {
+          void Promise.resolve(internals.invoke('debug_log', { msg: line })).catch(() => {})
+        } catch {
+          /* ignore */
+        }
+      }
+    }, 2000)
+    return () => clearInterval(timer)
   }, [])
 
   // 远端光标平滑：存在远端光标时持续 rAF 推进显示位置并重绘
@@ -592,11 +638,14 @@ export default function Canvas2D() {
     }
   }, [])
 
+  // 掌触拒绝：数位板笔（pointerType==='pen'）书写时忽略手掌触摸。
+  // 仅拒绝 pointerdown 不够——手掌的 move 会把手掌坐标塞进笔迹、up 会提前结束笔画（断笔）。
+  const isPalmTouch = (e: React.PointerEvent<HTMLCanvasElement>) =>
+    e.pointerType === 'touch' &&
+    [...pointersRef.current.values()].some((p) => p.type === 'pen')
+
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // 掌触拒绝：数位板笔正在使用时忽略触摸输入
-    if (e.pointerType === 'touch' && [...pointersRef.current.values()].some((p) => p.type === 'pen')) {
-      return
-    }
+    if (isPalmTouch(e)) return
     if (e.pointerType === 'pen') useStore.getState().setPenDetected(true)
     if (textDraft) commitText()
     const canvas = canvasRef.current
@@ -647,7 +696,7 @@ export default function Canvas2D() {
     }
     if (s.tool === 'eraser') {
       e.preventDefault()
-      interactionRef.current = { type: 'erase', r: eraserRadius(s.size), path: [], last: 0 }
+      interactionRef.current = { type: 'erase', r: eraserRadius(s.eraserSize), path: [], last: 0 }
       eraseAt(w)
       return
     }
@@ -757,6 +806,7 @@ export default function Canvas2D() {
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.pointerType === 'pen') useStore.getState().setPenDetected(true)
+    if (isPalmTouch(e)) return
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType })
     const w = toWorld(e.clientX, e.clientY)
     hoverRef.current = w
@@ -827,8 +877,14 @@ export default function Canvas2D() {
       } else {
         it.stroke.points.push({ ...w, p: (e.pressure ?? 0) > 0 ? e.pressure : 0.5 })
       }
-      const pts = it.stroke.points.slice()
-      yUpdateStrokePoints(it.stroke.id, pts)
+      // 实时渲染：直接绘制活动笔画（不依赖 doc 重建，避免每个 pointermove 都触发全量 yToDoc）
+      drawRef.current()
+      // 节流持久化：Yjs 同步 + 全量文档重建开销大，降到 ~20Hz（提交时再补最后一批点）
+      const now = performance.now()
+      if (now - lastStrokeSyncRef.current > 50) {
+        lastStrokeSyncRef.current = now
+        yUpdateStrokePoints(it.stroke.id, it.stroke.points.slice())
+      }
       return
     }
     if (it?.type === 'shape') {
@@ -975,6 +1031,11 @@ export default function Canvas2D() {
   }
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // 掌触抬起：清理该触摸点，但不结束正在进行的笔画
+    if (isPalmTouch(e)) {
+      pointersRef.current.delete(e.pointerId)
+      return
+    }
     pointersRef.current.delete(e.pointerId)
     const it = interactionRef.current
     if (it?.type === 'boxselect') {
@@ -1053,12 +1114,21 @@ export default function Canvas2D() {
           yDeleteItems('shapes', [it.id])
         }
       }
+      if (it.type === 'stroke') {
+        // 提交前补同步最后一批点（书写期间是节流同步的），确保完整笔迹落库后再重光栅化
+        yUpdateStrokePoints(it.stroke.id, it.stroke.points.slice())
+      }
       finishGesture()
     }
     if (pointersRef.current.size === 0) interactionRef.current = null
   }
 
-  const onPointerCancel = () => {
+  const onPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // 掌触被系统取消（如 OS 手势接管）：只清理该触摸点，不打断笔迹
+    if (isPalmTouch(e)) {
+      pointersRef.current.delete(e.pointerId)
+      return
+    }
     pointersRef.current.clear()
     finishGesture()
     interactionRef.current = null
@@ -1100,7 +1170,7 @@ export default function Canvas2D() {
             s.camera.zoom,
             viewportRef.current.w,
             viewportRef.current.h,
-            window.devicePixelRatio || 1,
+            effectiveDpr(),
             1.4,
           ),
         )

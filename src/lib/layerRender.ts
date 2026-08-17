@@ -1,6 +1,7 @@
 import { getStroke } from 'perfect-freehand'
 import type { StrokeOptions } from 'perfect-freehand'
 import type { Doc, Pt, Shape, Stroke, TextItem } from '../types'
+import { WebGLRenderer, parseColor } from './webglRender'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
@@ -89,6 +90,62 @@ function strokeOutline(pts: Pt[], s: Stroke): number[][] {
   )
 }
 
+// 笔画轮廓缓存：getStroke（perfect-freehand 细分）是渲染热点，其结果只依赖
+// 笔画的 points/size/kind，内容不变时无需重算。缩放/平移触发的重光栅化会
+// 反复遍历同一批笔画，缓存后只做一次细分。同时缓存轮廓点（2D 填 Path2D，
+// WebGL 填多边形都用同一份），避免重复 getStroke。
+const OUTLINE_CACHE_MAX = 3000
+interface CachedOutline {
+  sig: string
+  points: Pt[]
+  path: Path2D | null
+}
+const outlineCache = new Map<string, CachedOutline>()
+
+// 内容签名：FNV-1a 混合所有点坐标（量化到 1/256px，远超视觉精度）
+function strokeSignature(s: Stroke): string {
+  const pts = s.points
+  let h = 2166136261
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!
+    h = Math.imul(h ^ Math.round(p.x * 256), 16777619)
+    h = Math.imul(h ^ Math.round(p.y * 256), 16777619)
+    if (p.p !== undefined) h = Math.imul(h ^ Math.round(p.p * 256), 16777619)
+  }
+  return `${s.id}|${s.kind}|${s.size}|${pts.length}|${h >>> 0}`
+}
+
+// 返回缓存的笔画轮廓（点 + Path2D，空笔画 path 为 null）
+function cachedStrokeOutline(s: Stroke): CachedOutline {
+  const sig = strokeSignature(s)
+  const hit = outlineCache.get(s.id)
+  if (hit && hit.sig === sig) return hit
+
+  const outline = strokeOutline(s.points, s)
+  const points: Pt[] = outline.map((p) => ({ x: p[0]!, y: p[1]! }))
+  let path: Path2D | null = null
+  if (points.length >= 3) {
+    path = new Path2D()
+    path.moveTo(points[0]!.x, points[0]!.y)
+    for (let i = 1; i < points.length; i++) path.lineTo(points[i]!.x, points[i]!.y)
+    path.closePath()
+  }
+
+  if (outlineCache.size >= OUTLINE_CACHE_MAX) {
+    // 超限时逐出最早插入的条目（Map 迭代顺序即插入顺序）
+    const oldest = outlineCache.keys().next().value
+    if (oldest !== undefined) outlineCache.delete(oldest)
+  }
+  const entry: CachedOutline = { sig, points, path }
+  outlineCache.set(s.id, entry)
+  return entry
+}
+
+// 返回缓存的笔画轮廓 Path2D（空笔画返回 null）
+function strokeOutlinePath(s: Stroke): Path2D | null {
+  return cachedStrokeOutline(s).path
+}
+
 export function drawStroke(ctx: Ctx2D, s: Stroke, alpha: number): void {
   const preset = brushPreset(s.kind)
   const effSize = s.size * (preset.sizeScale ?? 1)
@@ -105,14 +162,34 @@ export function drawStroke(ctx: Ctx2D, s: Stroke, alpha: number): void {
     )
     ctx.fill()
   } else {
-    const outline = strokeOutline(s.points, s)
-    if (outline.length >= 3) {
-      ctx.beginPath()
-      ctx.moveTo(outline[0][0], outline[0][1])
-      for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i][0], outline[i][1])
-      ctx.closePath()
-      ctx.fill()
-    }
+    const path = strokeOutlinePath(s)
+    if (path) ctx.fill(path)
+  }
+  ctx.globalAlpha = 1
+}
+
+// 绘制过程中的实时笔画：用简单折线（round cap/join）代替 perfect-freehand 细分。
+// getStroke 每次都要重算整条笔画的轮廓（O(n) 且 n 随书写增长），在 WebView 上会
+// 拖垮主线程导致丢帧/断笔；折线渲染每帧只多画一个线段（O(1)）。提交后再用完整轮廓重光栅化。
+export function drawStrokeLive(ctx: Ctx2D, s: Stroke, alpha: number): void {
+  const preset = brushPreset(s.kind)
+  const effSize = s.size * (preset.sizeScale ?? 1)
+  ctx.globalAlpha = alpha * (preset.opacity ?? s.opacity)
+  ctx.strokeStyle = s.color
+  ctx.fillStyle = s.color
+  ctx.lineWidth = effSize
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  if (s.points.length === 1) {
+    const p = s.points[0]!
+    ctx.beginPath()
+    ctx.arc(p.x, p.y, Math.max(0.5, effSize / 2), 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(s.points[0]!.x, s.points[0]!.y)
+    for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i]!.x, s.points[i]!.y)
+    ctx.stroke()
   }
   ctx.globalAlpha = 1
 }
@@ -544,4 +621,137 @@ export function strokeOutlinePoints(s: Stroke): Pt[] {
     return [{ x: s.points[0].x, y: s.points[0].y }]
   }
   return strokeOutline(s.points, s).map((p) => ({ x: p[0], y: p[1] }))
+}
+
+// ---------- WebGL 渲染路径（GPU 光栅化笔画/形状/橡皮擦，不含文字） ----------
+
+function roundRectPoints(x0: number, y0: number, x1: number, y1: number, r: number): Pt[] {
+  const corners = [
+    { cx: x0 + r, cy: y0 + r, a0: Math.PI, a1: Math.PI * 1.5 },
+    { cx: x1 - r, cy: y0 + r, a0: Math.PI * 1.5, a1: Math.PI * 2 },
+    { cx: x1 - r, cy: y1 - r, a0: 0, a1: Math.PI * 0.5 },
+    { cx: x0 + r, cy: y1 - r, a0: Math.PI * 0.5, a1: Math.PI },
+  ]
+  const pts: Pt[] = []
+  const seg = 8
+  for (const c of corners) {
+    for (let j = 0; j <= seg; j++) {
+      const a = c.a0 + (c.a1 - c.a0) * (j / seg)
+      pts.push({ x: c.cx + r * Math.cos(a), y: c.cy + r * Math.sin(a) })
+    }
+  }
+  return pts
+}
+
+function drawStrokeGL(r: WebGLRenderer, s: Stroke, layerOpacity: number): void {
+  const color = parseColor(s.color)
+  const preset = brushPreset(s.kind)
+  const alpha = layerOpacity * (preset.opacity ?? s.opacity)
+  if (s.points.length === 1) {
+    const p = s.points[0]!
+    const effSize = s.size * (preset.sizeScale ?? 1)
+    r.fillCircle(p, Math.max(0.5, (effSize * (0.3 + 0.7 * (p.p ?? 1))) / 2), color, alpha)
+    return
+  }
+  const { points } = cachedStrokeOutline(s)
+  if (points.length >= 3) r.fillPolygon(points, color, alpha)
+}
+
+function drawShapeGL(r: WebGLRenderer, sh: Shape, doc: Doc, alpha: number): void {
+  const color = parseColor(sh.color)
+  const w = sh.size
+  const closed = (pts: Pt[]) => r.strokePolyline(pts, w, color, alpha, true)
+  const open = (pts: Pt[]) => r.strokePolyline(pts, w, color, alpha, false)
+
+  if (sh.kind === 'rect') {
+    const x0 = Math.min(sh.x0, sh.x1)
+    const x1 = Math.max(sh.x0, sh.x1)
+    const y0 = Math.min(sh.y0, sh.y1)
+    const y1 = Math.max(sh.y0, sh.y1)
+    closed([{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }])
+  } else if (sh.kind === 'roundrect') {
+    const x0 = Math.min(sh.x0, sh.x1)
+    const x1 = Math.max(sh.x0, sh.x1)
+    const y0 = Math.min(sh.y0, sh.y1)
+    const y1 = Math.max(sh.y0, sh.y1)
+    closed(roundRectPoints(x0, y0, x1, y1, Math.min(x1 - x0, y1 - y0) * 0.25))
+  } else if (sh.kind === 'ellipse') {
+    const x0 = Math.min(sh.x0, sh.x1)
+    const x1 = Math.max(sh.x0, sh.x1)
+    const y0 = Math.min(sh.y0, sh.y1)
+    const y1 = Math.max(sh.y0, sh.y1)
+    const cx = (x0 + x1) / 2
+    const cy = (y0 + y1) / 2
+    const rx = Math.max(0.1, (x1 - x0) / 2)
+    const ry = Math.max(0.1, (y1 - y0) / 2)
+    const pts: Pt[] = []
+    const n = 48
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2
+      pts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) })
+    }
+    closed(pts)
+  } else if (sh.kind === 'triangle' || sh.kind === 'star' || sh.kind === 'trapezoid' || sh.kind === 'pentagon' || sh.kind === 'hexagon' || sh.kind === 'heptagon' || sh.kind === 'octagon' || sh.kind === 'diamond' || sh.kind === 'parallelogram') {
+    closed(polygonPoints(sh))
+  } else if (sh.kind === 'angle') {
+    const g = angleGeometry(sh)
+    open([g.v, g.ray1])
+    open([g.v, g.ray2])
+    open(g.arc)
+  } else if (sh.kind === 'axes') {
+    const g = axesGeometry(sh)
+    open([{ x: g.x0, y: g.cy }, { x: g.x1, y: g.cy }])
+    open([{ x: g.cx, y: g.y1 }, { x: g.cx, y: g.y0 }])
+    const len = 10 + sh.size * 1.2
+    open([{ x: g.x1, y: g.cy }, { x: g.x1 - len, y: g.cy - len * 0.45 }])
+    open([{ x: g.x1, y: g.cy }, { x: g.x1 - len, y: g.cy + len * 0.45 }])
+    open([{ x: g.cx, y: g.y0 }, { x: g.cx - len * 0.45, y: g.y0 + len }])
+    open([{ x: g.cx, y: g.y0 }, { x: g.cx + len * 0.45, y: g.y0 + len }])
+    for (const tk of axesTicks(sh)) open([tk.x, tk.y])
+  } else if (sh.kind === 'parabola') {
+    open(parabolaPoints(sh))
+  } else {
+    const { start, end } = shapeEndpoints(sh, doc)
+    open([start, end])
+    if (sh.kind === 'arrow') {
+      const angle = Math.atan2(end.y - start.y, end.x - start.x)
+      const len = 12 + sh.size * 1.5
+      open([end, { x: end.x - len * Math.cos(angle - Math.PI / 7), y: end.y - len * Math.sin(angle - Math.PI / 7) }])
+      open([end, { x: end.x - len * Math.cos(angle + Math.PI / 7), y: end.y - len * Math.sin(angle + Math.PI / 7) }])
+    }
+  }
+}
+
+// 用 WebGL 光栅化某一层（笔画 + 形状 + 橡皮擦洞），不含文字。
+// 文字层需走 2D 路径（render.worker.ts 根据层内是否有文字决定用哪条路径）。
+export function drawLayerContentGL(
+  r: WebGLRenderer,
+  doc: Doc,
+  layerId: string,
+  layerOpacity: number,
+  layerOf: (l?: string) => string,
+  view?: WorldRect,
+): void {
+  const holesAfter = (seq: number) => {
+    r.setBlend('destination-out')
+    for (const c of doc.eraser) {
+      if (c.seq <= seq || layerOf(c.layer) !== layerId) continue
+      if (view && !intersects(view, { x0: c.x - c.r, y0: c.y - c.r, x1: c.x + c.r, y1: c.y + c.r })) continue
+      r.fillCircle({ x: c.x, y: c.y }, c.r, [1, 1, 1, 1], 1)
+    }
+    r.setBlend('source-over')
+  }
+
+  for (const s of doc.strokes) {
+    if (layerOf(s.layer) !== layerId) continue
+    if (view && !intersects(view, strokeBounds(s))) continue
+    drawStrokeGL(r, s, layerOpacity)
+    holesAfter(s.seq ?? 0)
+  }
+  for (const sh of doc.shapes) {
+    if (layerOf(sh.layer) !== layerId) continue
+    if (view && !intersects(view, shapeBounds(sh))) continue
+    drawShapeGL(r, sh, doc, layerOpacity)
+    holesAfter(sh.seq ?? 0)
+  }
 }

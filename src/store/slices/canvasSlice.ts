@@ -14,12 +14,14 @@ export interface CanvasSlice {
   tool: Tool
   color: string
   size: number
+  eraserSize: number
   brushStyle: StrokeKind
   boxSelecting: boolean
   setCamera(p: Partial<Camera2D>): void
   setTool(t: Tool): void
   setColor(c: string): void
   setSize(s: number): void
+  setEraserSize(s: number): void
   setBrushStyle(k: StrokeKind): void
   setBoxSelecting(v: boolean): void
   clearScreen(): void
@@ -32,6 +34,7 @@ export const createCanvasSlice: StateCreator<CanvasState, [], [], CanvasSlice> =
   tool: 'pen' as Tool,
   color: '#18181b',
   size: 4,
+  eraserSize: 24,
   brushStyle: 'pen' as StrokeKind,
   boxSelecting: false,
 
@@ -39,6 +42,7 @@ export const createCanvasSlice: StateCreator<CanvasState, [], [], CanvasSlice> =
   setTool: (t) => set({ tool: t, boxSelecting: false }),
   setColor: (c) => set({ color: c }),
   setSize: (s) => set({ size: s }),
+  setEraserSize: (s) => set({ eraserSize: s }),
   setBrushStyle: (k) => set({ brushStyle: k, tool: 'pen' }),
   setBoxSelecting: (v) => set({ boxSelecting: v }),
 

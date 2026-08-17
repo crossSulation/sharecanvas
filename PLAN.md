@@ -423,6 +423,46 @@ UPDATE_MS=500 AWARE_MS=250 node scripts/stress.mjs 50 20 30 localhost 8800
 
 ---
 
+## 移动端渲染：WebGL 升级计划（2026-08-17）
+
+### 背景与诊断
+
+Android WebView 移动端书写卡顿/断笔排查结论（真机诊断日志）：
+
+```
+workerOk=true workerCount=4 offscreenCanvas=true dpr=2.25 hardwareConcurrency=8
+fps=43 drawAvg=0.46ms drawMax=2.6ms
+```
+
+- Worker 池正常（4 个，OffscreenCanvas 可用），**不是** OffscreenCanvas 回退问题
+- `draw()` 合成极快（0.46ms，占帧预算 ~3%），**不是** GPU/canvas 光栅化瓶颈
+- 真正瓶颈是**主线程**：每个 `pointermove` 触发 `yToDoc()` 全量文档重建 + React 重渲染（WebView JIT 受限扛不住高频笔输入）
+- 次要：dpr 2.25 让软件光栅化像素量偏大；设备在 35°C 即触发 SLM 热降频（`thermal_enable_slm=true`）
+
+### 已做的优化（保持现状，先不重写）
+
+- [x] 掌触拒绝补全：`pointermove`/`pointerup`/`pointercancel` 也过滤手掌触摸（原来只有 `pointerdown`），修复手掌干扰导致断笔
+- [x] 实时笔画改折线渲染 `drawStrokeLive`（每帧 O(1)，不再每帧重算 `getStroke`），提交后再完整 freehand 光栅化
+- [x] 书写期节流 Yjs 同步（~50ms / 20Hz）+ 直接 `drawRef()` 实时渲染，抬起补最后一批点；本地帧率不受影响，协作端 20Hz 够用
+- [x] DPR 封顶 2.0（`effectiveDpr()`），光栅化像素量下降（2.25→2 减 21%）
+- [x] 笔画轮廓缓存（`strokeOutlinePath` + FNV-1a 签名 + `Path2D`），缩放/平移重光栅化时 `getStroke` 只算一次
+- [x] 橡皮擦范围独立可调（`eraserSize` 状态，8~120）
+- [x] 周期性能上报：`[perf] fps/drawAvg/drawMax` 每 2s 写 Rust 日志，移动端免开 `?debug`
+
+### 下一阶段：WebGL 渲染层（可选，非阻塞）
+
+若后续仍有 WebView 不支持 worker 或软件光栅化瓶颈，优先做 **WebGL 渲染层**（比 native 重写小得多）：
+
+- **收益**：WebView 里 `OffscreenCanvas` 2D 在 worker 中是软件光栅化（CPU），而 **WebGL 硬件加速**；把 layer 重光栅化上 GPU
+- **改动范围**：重写 `layerRender.ts` + `render.worker.ts` 的光栅化部分，React/Yjs/协作/UI 不动
+- **落地顺序**（增量）：
+  1. 笔画 + 形状光栅化换 WebGL（worker 里 `OffscreenCanvas` 改 `getContext('webgl2')`；`getStroke` 多边形三角化塞顶点缓冲）
+  2. 橡皮擦打洞用 stencil buffer / render-to-texture 遮罩
+  3. 文字是唯一难点（WebGL 无内置文字，需字形图集）——文字层可继续 2D 合成，混合方案
+- **兜底**：完全不支持 worker 的 WebView → 终极方案是 Tauri 内嵌 Rust + wgpu/vello 原生渲染（改动巨大且丢 Web 端，维护两套渲染器）
+
+---
+
 ## 优先级排序
 
 ```
