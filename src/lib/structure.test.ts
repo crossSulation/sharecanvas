@@ -42,6 +42,23 @@ describe('detectStructure / beautifyStructure', () => {
     expect(detectStructure(shapes)?.type).not.toBe('barchart')
   })
 
+  it('柱状图：细竖线柱子被识别，美化后转成等宽矩形柱', () => {
+    const shapes = [
+      sh('l1', 'line', 100, 100, 103, 200),
+      sh('l2', 'line', 150, 120, 153, 200),
+      sh('l3', 'line', 200, 130, 203, 200),
+    ]
+    const r = detectStructure(shapes)
+    expect(r?.type).toBe('barchart')
+    const patches = beautifyStructure(r!, shapes)
+    const patched = new Map(patches.map((p) => [p.id, { ...shapes.find((s) => s.id === p.id)!, ...p.patch }]))
+    expect([...patched.values()].every((s) => s.kind === 'rect')).toBe(true)
+    const bottoms = [...patched.values()].map((s) => s.y1)
+    const widths = [...patched.values()].map((s) => Math.abs(s.x1 - s.x0))
+    expect(new Set(bottoms).size).toBe(1)
+    expect(new Set(widths).size).toBe(1)
+  })
+
   it('表格：2x2 网格被识别，美化后吸附为等宽等高的规整网格', () => {
     const shapes = [
       sh('c1', 'rect', 100, 100, 160, 150),

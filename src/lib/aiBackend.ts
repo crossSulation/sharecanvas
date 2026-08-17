@@ -22,6 +22,24 @@ const HANDWRITING_MAX_SIZE = 120
 // 模型返回的数字类别（与 crates/ai-core/src/onnx.rs 的 labels 后 10 类一致）
 const DIGIT_KINDS = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
 
+// 首尾是否闭合（近似闭环）
+function isClosedLoop(pts: Pt[], maxDim: number): boolean {
+  if (pts.length < 3) return false
+  const first = pts[0]!
+  const last = pts[pts.length - 1]!
+  return Math.hypot(first.x - last.x, first.y - last.y) <= Math.max(10, maxDim * 0.2)
+}
+
+// 小书写区域里非数字类别的放行规则：
+// 只保护“正圆 0”——小尺寸椭圆闭环（近圆形）保持笔画，其余形状（rect/line/triangle 等）允许转形状
+function acceptSmallKind(kind: string, pts: Pt[], w: number, h: number): boolean {
+  if (kind === 'ellipse' && isClosedLoop(pts, Math.max(w, h))) {
+    const aspect = w / Math.max(h, 1)
+    if (aspect > 0.6 && aspect < 1.67) return false
+  }
+  return true
+}
+
 let debugSeq = 0
 // 移动端调试日志：同时打到 console 和 Rust 端日志文件（fire-and-forget，不阻塞流程）
 function mobileLog(...args: unknown[]) {
@@ -390,7 +408,7 @@ async function beautifyStrokeGroup(
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
       const isDigit = DIGIT_KINDS.has(detected.kind)
       // 路由：小书写区域 → 只接受数字（转文字）；大区域 → 只接受形状
-      const accept = textLike ? isDigit : !isDigit
+      const accept = textLike ? isDigit || acceptSmallKind(detected.kind, allPts, bboxW, bboxH) : !isDigit
       if (!accept) {
         console.log('[beautify] rejected mismatched kind (small=', textLike, 'kind=', detected.kind, ') -> smooth')
         detected = null
@@ -436,7 +454,13 @@ async function beautifyStrokeGroup(
     const smoothed = smoothPoints(allPts, 2)
     const detected = detectShape(smoothed)
 
-    if (detected && !smoothOnly && !textLike && detected.confidence > 0.5 && allPts.length > 10) {
+    if (
+      detected &&
+      !smoothOnly &&
+      (textLike ? acceptSmallKind(detected.kind, allPts, bboxW, bboxH) : true) &&
+      detected.confidence > 0.5 &&
+      allPts.length > 10
+    ) {
       const outcome = handleDetected(strokeIds[0]!, detected, refColor, refSize, refLayer)
       if (strokeIds.length > 1) yDeleteItems('strokes', strokeIds.slice(1))
       console.log(

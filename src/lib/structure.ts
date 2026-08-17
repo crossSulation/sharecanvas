@@ -16,7 +16,7 @@ export interface StructureResult {
 
 export interface StructurePatch {
   id: string
-  patch: Partial<Pick<Shape, 'x0' | 'y0' | 'x1' | 'y1' | 'attachStartId' | 'attachEndId'>>
+  patch: Partial<Pick<Shape, 'x0' | 'y0' | 'x1' | 'y1' | 'kind' | 'attachStartId' | 'attachEndId'>>
 }
 
 const NODE_KINDS: ShapeKind[] = ['rect', 'roundrect', 'diamond']
@@ -153,19 +153,35 @@ function detectFlowchart(shapes: Shape[]): StructureResult | null {
 
 // ---------- 柱状图 ----------
 function detectBarchart(shapes: Shape[]): StructureResult | null {
-  const bars = shapes.filter((s) => CELL_KINDS.includes(s.kind)).map((s) => ({ s, b: box(s) }))
-  const barsOk = bars.filter(({ b }) => b.x1 - b.x0 >= 8 && b.y1 - b.y0 >= 8)
+  // 柱子可以是矩形，也可以是细竖线（手绘柱状图常见画法）
+  const isVerticalLine = (s: Shape) => {
+    const b = box(s)
+    const w = b.x1 - b.x0
+    const h = b.y1 - b.y0
+    return s.kind === 'line' && h >= 30 && w <= h * 0.25
+  }
+  const bars = shapes
+    .filter((s) => CELL_KINDS.includes(s.kind) || isVerticalLine(s))
+    .map((s) => ({ s, b: box(s) }))
+  const barsOk = bars.filter(({ s, b }) => {
+    const w = b.x1 - b.x0
+    const h = b.y1 - b.y0
+    if (s.kind === 'line') return h >= 30 && w <= h * 0.25
+    return w >= 8 && h >= 8
+  })
   if (barsOk.length < 3) return null
 
   const widths = barsOk.map(({ b }) => b.x1 - b.x0)
   const bottoms = barsOk.map(({ b }) => b.y1)
   const med = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)]!
   const medW = med(widths)
-  if (medW <= 0) return null
   // 底部对齐 + 等宽（相对容差，容忍手绘误差）
   const hSpread = (Math.max(...bottoms) - Math.min(...bottoms)) / Math.max(med(barsOk.map(({ b }) => b.y1 - b.y0)), 1)
-  const wSpread = (Math.max(...widths) - Math.min(...widths)) / medW
-  if (hSpread > 0.12 || wSpread > 0.45) return null
+  if (hSpread > 0.12) return null
+  if (medW > 0) {
+    const wSpread = (Math.max(...widths) - Math.min(...widths)) / medW
+    if (wSpread > 0.45) return null
+  }
   // 柱子中心不应重叠（左右排列）
   const cx = barsOk.map(({ b }) => (b.x0 + b.x1) / 2)
   for (let i = 0; i < cx.length; i++) {
@@ -325,10 +341,26 @@ export function beautifyStructure(result: StructureResult, shapes: Shape[]): Str
     const med = (arr: number[]) => [...arr].sort((a, b) => a - b)[Math.floor(arr.length / 2)]!
     const bottom = Math.max(...bars.map((s) => Math.max(s.y0, s.y1)))
     const width = med(bars.map((s) => Math.abs(s.x1 - s.x0)))
+    const lineW = Math.max(16, Math.min(40, med(bars.map((s) => Math.abs(s.y1 - s.y0))) * 0.18))
     for (const s of bars) {
       const x0 = Math.min(s.x0, s.x1)
       const h = Math.abs(s.y1 - s.y0)
-      patches.push({ id: s.id, patch: { x0, y0: bottom - h, x1: x0 + width, y1: bottom } })
+      // 细竖线柱子 → 转成等宽矩形柱
+      if (s.kind === 'line' && width < 8) {
+        const cx = (s.x0 + s.x1) / 2
+        patches.push({
+          id: s.id,
+          patch: {
+            kind: 'rect',
+            x0: cx - lineW / 2,
+            y0: bottom - h,
+            x1: cx + lineW / 2,
+            y1: bottom,
+          },
+        })
+      } else {
+        patches.push({ id: s.id, patch: { x0, y0: bottom - h, x1: x0 + width, y1: bottom } })
+      }
     }
   } else if (result.type === 'table') {
     const cells = result.members.map((id) => byId.get(id)!).filter(Boolean)
