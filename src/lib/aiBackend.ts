@@ -280,8 +280,11 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
   const bboxW = Math.max(...xs) - Math.min(...xs)
   const bboxH = Math.max(...ys) - Math.min(...ys)
   // 1-2 笔且尺寸很小 → 大概率是手写数字/文字，避免被识别成随机形状
-  const textLike = !smoothOnly && strokeIds.length <= 2 && Math.max(bboxW, bboxH) < HANDWRITING_MAX_SIZE
-  if (textLike) mobileLog('small handwriting (size=', Math.round(Math.max(bboxW, bboxH)), ') -> digit/text path')
+  // 尺寸按屏幕像素比较（世界尺寸 × 缩放），缩放画布后手写区域路由保持一致
+  const zoom = useStore.getState().camera.zoom
+  const screenSize = Math.max(bboxW, bboxH) * zoom
+  const textLike = !smoothOnly && strokeIds.length <= 2 && screenSize < HANDWRITING_MAX_SIZE
+  if (textLike) mobileLog('small handwriting (size=', Math.round(screenSize), ') -> digit/text path')
   if (smoothOnly) mobileLog('smooth-only mode -> skip shape recognition')
 
   const t1 = performance.now()
