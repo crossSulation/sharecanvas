@@ -33,6 +33,9 @@ import {
 import type { AxesHandle, Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
 import { axesParams } from '../lib/layerRender'
 
+// 手部防误触：触控笔抬起后，仍忽略手掌触摸的时间窗口（毫秒）
+const PALM_REJECT_MS = 600
+
 export default function Canvas2D() {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -56,6 +59,9 @@ export default function Canvas2D() {
   stateRef.current = { doc, camera, tool, size, selected, users, selfId }
 
   const pointersRef = useRef(new Map<number, { x: number; y: number; type: string }>())
+  const rejectedPointersRef = useRef(new Set<number>())
+  const interactionPointerRef = useRef<number | null>(null)
+  const lastPenAtRef = useRef(0)
   const interactionRef = useRef<Interaction | null>(null)
   const spaceRef = useRef(false)
   const hoverRef = useRef<Pt | null>(null)
@@ -588,21 +594,53 @@ export default function Canvas2D() {
       })
     }
     if (added.length) {
+      it.ids.push(...added.map((c) => c.id))
       yPush('eraser', added)
     }
   }, [])
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     // 掌触拒绝：数位板笔正在使用时忽略触摸输入
-    if (e.pointerType === 'touch' && [...pointersRef.current.values()].some((p) => p.type === 'pen')) {
-      return
+    if (e.pointerType === 'pen') {
+      const st = useStore.getState()
+      st.setPenDetected(true)
+      lastPenAtRef.current = Date.now()
+      // 笔落下的瞬间：如果当前手势由触摸（通常是手掌）发起，取消并回滚绘制/擦除
+      const it = interactionRef.current
+      const startPointer = interactionPointerRef.current
+      const startPointerType = startPointer !== null ? pointersRef.current.get(startPointer)?.type : undefined
+      if (it && startPointerType === 'touch') {
+        if (it.type === 'stroke') yDeleteItems('strokes', [it.stroke.id])
+        else if (it.type === 'shape') yDeleteItems('shapes', [it.id])
+        else if (it.type === 'erase' && it.ids.length) yDeleteItems('eraser', it.ids)
+        interactionRef.current = null
+        suppressInvalidationRef.current = false
+        gestureLayerIdRef.current = null
+      }
+      // 丢弃仍在按下的触摸指针，防止手掌参与双指缩放或残留拖拽
+      for (const [pid, p] of [...pointersRef.current]) {
+        if (p.type === 'touch') {
+          pointersRef.current.delete(pid)
+          rejectedPointersRef.current.add(pid)
+        }
+      }
+    } else if (e.pointerType === 'touch') {
+      const s = useStore.getState()
+      const penDown = [...pointersRef.current.values()].some((p) => p.type === 'pen')
+      const writingTool = s.tool === 'pen' || s.tool === 'highlighter' || s.tool === 'eraser'
+      const recentPen = s.penDetected && writingTool && Date.now() - lastPenAtRef.current < PALM_REJECT_MS
+      if (penDown || recentPen) {
+        // 手掌触摸：不参与绘制/平移/双指缩放
+        rejectedPointersRef.current.add(e.pointerId)
+        return
+      }
     }
-    if (e.pointerType === 'pen') useStore.getState().setPenDetected(true)
     if (textDraft) commitText()
     const canvas = canvasRef.current
     if (!canvas) return
     canvas.setPointerCapture(e.pointerId)
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType })
+    interactionPointerRef.current = e.pointerId
     const s = useStore.getState()
     if (s.readOnly && s.tool !== 'select' && s.tool !== 'hand') return
     if (e.button === 1 || e.button === 2 || spaceRef.current || s.tool === 'hand') {
@@ -647,7 +685,7 @@ export default function Canvas2D() {
     }
     if (s.tool === 'eraser') {
       e.preventDefault()
-      interactionRef.current = { type: 'erase', r: eraserRadius(s.size), path: [], last: 0 }
+      interactionRef.current = { type: 'erase', r: eraserRadius(s.size), path: [], last: 0, ids: [] }
       eraseAt(w)
       return
     }
@@ -756,7 +794,11 @@ export default function Canvas2D() {
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.pointerType === 'pen') useStore.getState().setPenDetected(true)
+    if (e.pointerType === 'touch' && rejectedPointersRef.current.has(e.pointerId)) return
+    if (e.pointerType === 'pen') {
+      useStore.getState().setPenDetected(true)
+      lastPenAtRef.current = Date.now()
+    }
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType })
     const w = toWorld(e.clientX, e.clientY)
     hoverRef.current = w
@@ -976,6 +1018,8 @@ export default function Canvas2D() {
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
     pointersRef.current.delete(e.pointerId)
+    rejectedPointersRef.current.delete(e.pointerId)
+    if (interactionPointerRef.current === e.pointerId) interactionPointerRef.current = null
     const it = interactionRef.current
     if (it?.type === 'boxselect') {
       const x0 = Math.min(it.start.x, it.end.x)
@@ -1060,6 +1104,8 @@ export default function Canvas2D() {
 
   const onPointerCancel = () => {
     pointersRef.current.clear()
+    rejectedPointersRef.current.clear()
+    interactionPointerRef.current = null
     finishGesture()
     interactionRef.current = null
   }

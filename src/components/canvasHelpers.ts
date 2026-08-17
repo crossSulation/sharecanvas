@@ -7,7 +7,7 @@ export type ItemRef = { kind: 'stroke' | 'shape' | 'text'; item: Stroke | Shape 
 export type Interaction =
   | { type: 'stroke'; stroke: Stroke }
   | { type: 'shape'; id: string; start: Pt; end: Pt }
-  | { type: 'erase'; r: number; path: Pt[]; last: number }
+  | { type: 'erase'; r: number; path: Pt[]; last: number; ids: string[] }
   | { type: 'move'; start: Pt; items: ItemRef[]; dx: number; dy: number }
   | { type: 'resize'; start: Pt; startBounds: { x0: number; y0: number; x1: number; y1: number }; handle: ResizeHandle }
   | { type: 'axesHandle'; id: string; handle: AxesHandle; start: Pt }

@@ -98,7 +98,21 @@ function makeTauriBackend(): BackendAI {
   }
 }
 
-async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
+let backendCacheAt = 0
+let backendCache: Promise<{ backend: BackendAI; name: BackendName } | null> | null = null
+
+// 后端探测结果做缓存（失败 30s 后重试），避免每次美化都重复探测——
+// 局域网地址不可达时，每次探测都会拖慢 ~2s，导致识别结果迟迟不出现
+function getBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
+  const now = Date.now()
+  if (!backendCache || now - backendCacheAt > 30000) {
+    backendCacheAt = now
+    backendCache = resolveBackend()
+  }
+  return backendCache
+}
+
+async function resolveBackend(): Promise<{ backend: BackendAI; name: BackendName } | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if ((window as any).__TAURI_INTERNALS__) {
     try {
@@ -110,11 +124,15 @@ async function getBackend(): Promise<{ backend: BackendAI; name: BackendName } |
 
   if (typeof fetch !== 'undefined') {
     try {
-      const res = await fetch(`${AI_BASE}/api/ai/beautify`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ points: [] }),
-      })
+      const res = await withTimeout(
+        fetch(`${AI_BASE}/api/ai/beautify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ points: [] }),
+        }),
+        800,
+        'ai-probe',
+      )
       const contentType = res.headers.get('content-type') || ''
       if (contentType.includes('application/json')) {
         return {

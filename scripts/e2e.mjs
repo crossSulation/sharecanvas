@@ -464,6 +464,68 @@ async function runTests(browser) {
     assert(shown, '未显示压感笔已连接提示')
   })
 
+  await test('手部防误触：笔写期间手掌触摸不产生笔迹', async () => {
+    await clickTool(2) // pen
+    const cdp = await page.createCDPSession()
+    const pen = (type, x, y, force = 0.5) =>
+      cdp.send('Input.dispatchMouseEvent', {
+        type,
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+        pointerType: 'pen',
+        force,
+      })
+    const touch = (type, x, y) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [{ x, y, id: 7 }] })
+    const before = (await readDoc()).strokes.length
+    const camBefore = await page.evaluate(() => window.__sharecanvasCamera())
+    // 笔先落下，手掌随后触屏并拖动
+    await pen('mousePressed', 600, 350, 0.3)
+    await touch('touchStart', 480, 420)
+    await touch('touchMove', 430, 480)
+    await pen('mouseMoved', 700, 370, 0.6)
+    await pen('mouseReleased', 700, 370, 0.6)
+    await touch('touchEnd', 430, 480)
+    await saveWait()
+    const doc = await readDoc()
+    assert(doc.strokes.length === before + 1, `手掌触摸不应产生额外笔迹：${before} -> ${doc.strokes.length}`)
+    const camAfter = await page.evaluate(() => window.__sharecanvasCamera())
+    assert(
+      Math.abs(camAfter.x - camBefore.x) < 1 && Math.abs(camAfter.y - camBefore.y) < 1,
+      '手掌触摸不应平移画布',
+    )
+  })
+
+  await test('手部防误触：手掌先落笔再落下，误触笔迹被回滚', async () => {
+    await clickTool(2) // pen
+    const cdp = await page.createCDPSession()
+    const pen = (type, x, y, force = 0.5) =>
+      cdp.send('Input.dispatchMouseEvent', {
+        type,
+        x,
+        y,
+        button: 'left',
+        clickCount: 1,
+        pointerType: 'pen',
+        force,
+      })
+    const touch = (type, x, y) =>
+      cdp.send('Input.dispatchTouchEvent', { type, touchPoints: [{ x, y, id: 8 }] })
+    const before = (await readDoc()).strokes.length
+    // 手掌先触屏拖动，笔随后落下
+    await touch('touchStart', 500, 500)
+    await touch('touchMove', 520, 540)
+    await pen('mousePressed', 620, 380, 0.4)
+    await pen('mouseMoved', 700, 400, 0.7)
+    await pen('mouseReleased', 700, 400, 0.7)
+    await touch('touchEnd', 520, 540)
+    await saveWait()
+    const doc = await readDoc()
+    assert(doc.strokes.length === before + 1, `笔落下时应回滚手掌误触笔迹：${before} -> ${doc.strokes.length}`)
+  })
+
   await test('荧光笔：创建 kind=highlighter 的笔迹', async () => {
     await clickTool(3)
     await drag(700, 300, 850, 340)
