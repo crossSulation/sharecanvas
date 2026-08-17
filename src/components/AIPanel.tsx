@@ -81,8 +81,15 @@ export default function AIPanel() {
   const hasMultiple = useStore((s) => s.selected.length >= 2)
 
   const handleBeautify = async (smoothOnly = false) => {
-    const n = await beautifySelected(smoothOnly)
-    setMsg(n > 0 ? (smoothOnly ? `已平滑 ${n} 条笔画` : `已美化 ${n} 条笔画`) : '请先选中笔画')
+    const res = await beautifySelected(smoothOnly)
+    if (res.structure) {
+      const labels: Record<string, string> = { flowchart: '流程图', barchart: '柱状图', table: '表格' }
+      setMsg(`识别到${labels[res.structure.type] ?? res.structure.type}并美化（${Math.round(res.structure.confidence * 100)}%）`)
+    } else if (res.count > 0) {
+      setMsg(smoothOnly ? `已平滑 ${res.count} 条笔画` : `已美化 ${res.count} 条笔画`)
+    } else {
+      setMsg('请先选中笔画')
+    }
     setTimeout(() => setMsg(''), 2000)
   }
 

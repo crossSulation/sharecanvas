@@ -722,6 +722,66 @@ async function runTests(browser) {
     )
   })
 
+  await test('结构识别：手绘 3 根柱状图美化后识别为柱状图并统一底部与宽度', async () => {
+    // 画 3 根柱子（闭合矩形，>120px 走形状路径；底部/宽度刻意略有偏差，验证美化会统一）
+    const bars = [
+      [710, 415, 765, 545],
+      [790, 425, 845, 550],
+      [870, 425, 925, 550],
+    ]
+    await clickTool(2) // pen
+    for (const [x0, y0, x1, y1] of bars) {
+      await page.mouse.move(x0, y0)
+      await page.mouse.down()
+      await page.mouse.move(x1, y0, { steps: 4 })
+      await page.mouse.move(x1, y1, { steps: 6 })
+      await page.mouse.move(x0, y1, { steps: 4 })
+      await page.mouse.move(x0, y0, { steps: 6 })
+      await page.mouse.up()
+      await wait(300)
+    }
+    await saveWait()
+    const before = await readDoc()
+
+    // 套索选中三根柱子
+    await clickTool(0) // select
+    await page.mouse.move(705, 350)
+    await page.mouse.down()
+    for (const [x, y] of [
+      [960, 350],
+      [960, 553],
+      [705, 553],
+      [705, 350],
+    ]) {
+      await page.mouse.move(x, y, { steps: 6 })
+    }
+    await page.mouse.up()
+    await wait(400)
+    const selN = await page.evaluate(() => window.__sharecanvasSelected().length)
+    assert(selN >= 3, `应选中至少 3 个笔画，实际 ${selN}`)
+
+    const clicked = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '柱状图应能出现美化按钮')
+    await wait(3000)
+    const doc = await readDoc()
+    const newRects = doc.shapes
+      .slice(before.shapes.length)
+      .filter((s) => s.kind === 'rect' || s.kind === 'roundrect')
+    assert(
+      newRects.length >= 3,
+      `三根柱子应被识别为矩形（新增 ${JSON.stringify(doc.shapes.slice(before.shapes.length).map((s) => s.kind))}）`,
+    )
+    const bottoms = newRects.map((s) => Math.max(s.y0, s.y1))
+    const widths = newRects.map((s) => Math.abs(s.x1 - s.x0))
+    assert(new Set(bottoms).size === 1, `柱状图底部应对齐，实际 ${JSON.stringify(bottoms)}`)
+    assert(new Set(widths).size === 1, `柱状图宽度应统一，实际 ${JSON.stringify(widths)}`)
+  })
+
   await test('橡皮擦：区域遮罩写入文档（不删除笔迹数据）', async () => {
     const before = (await readDoc()).strokes.length
     await clickTool(4)
@@ -1306,7 +1366,13 @@ async function runHeartbeatTest(port) {
 
 async function main() {
   console.log('[e2e] 构建生产包...')
-  const build = spawnSync('npm run build', { shell: true, stdio: 'inherit' })
+  // AI 后端强制指向本地 e2e 服务，避免 .env 里的局域网地址（平板）在线时
+  // 把识别请求转发到平板旧模型，导致结果不稳定
+  const build = spawnSync('npm run build', {
+    shell: true,
+    stdio: 'inherit',
+    env: { ...process.env, LOCAL_DATA_URL: `http://localhost:${PORT}` },
+  })
   if (build.status !== 0) {
     console.error('[e2e] 构建失败')
     process.exit(1)

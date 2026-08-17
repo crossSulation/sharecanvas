@@ -1,9 +1,16 @@
 import { smoothPoints, detectShape } from './aiDraw'
 import { useStore } from '../store'
-import { yDeleteItems, yPush, yUpdateStrokePoints } from './yroom'
+import { yDeleteItems, yPush, yUpdateItem, yUpdateStrokePoints } from './yroom'
 import { createId } from './id'
 import { nextSeq } from './seq'
-import type { Pt } from '../types'
+import type { Pt, Stroke } from '../types'
+import {
+  beautifyStructure,
+  clusterStrokeGroups,
+  collectCandidates,
+  detectStructure,
+  type StructureResult,
+} from './structure'
 
 // Tauri WebView 改写 origin 为 tauri.localhost，fetch 相对路径失效，需使用本机数据服务地址
 const AI_BASE = import.meta.env.LOCAL_DATA_URL ?? ''
@@ -229,14 +236,17 @@ function handleDetected(id: string, detected: { kind: string; x0: number; y0: nu
   return 'shape'
 }
 
-export async function beautifySelected(smoothOnly = false): Promise<number> {
+export async function beautifySelected(
+  smoothOnly = false,
+): Promise<{ count: number; structure: StructureResult | null }> {
   const t0 = performance.now()
-  const s = useStore.getState()
-  const strokeIds = s.selected.filter((id) => s.doc.strokes.some((st) => st.id === id))
-  mobileLog('selected=', s.selected.length, 'strokeIds=', strokeIds.length)
+  const s0 = useStore.getState()
+  const initialShapeIds = new Set(s0.doc.shapes.map((sh) => sh.id))
+  const strokeIds = s0.selected.filter((id) => s0.doc.strokes.some((st) => st.id === id))
+  mobileLog('selected=', s0.selected.length, 'strokeIds=', strokeIds.length)
   if (!strokeIds.length) {
     mobileLog('no stroke selected, abort')
-    return 0
+    return { count: 0, structure: null }
   }
 
   const resolved = await getBackend()
@@ -244,7 +254,65 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
   const pathLabel = resolved?.name ?? 'js-fallback'
   mobileLog('backend=', pathLabel)
 
-  // 收集所有选中笔画的点，按笔画顺序拼接
+  // 空间聚类：相连（端点相接）的笔画合并识别（多笔单图形），
+  // 分离的笔画各自美化（柱状图/流程图等多图元结构）
+  const strokes = strokeIds
+    .map((id) => s0.doc.strokes.find((st) => st.id === id))
+    .filter((st): st is Stroke => !!st)
+  const groups = clusterStrokeGroups(strokes)
+  mobileLog('groups=', groups.length)
+
+  let count = 0
+  let shapeCount = 0
+  for (const group of groups) {
+    const r = await beautifyStrokeGroup(group, smoothOnly, backend, pathLabel)
+    count += r.count
+    shapeCount += r.shapeCount
+  }
+
+  const totalMs = (performance.now() - t0).toFixed(1)
+  console.log(
+    `%c[beautify] %cdone %c${totalMs}ms %cshapes=${shapeCount} smoothed=${count - shapeCount}`,
+    'color:#8b5cf6;font-weight:bold', '', 'color:#a1a1aa', '', '',
+  )
+
+  // 结构识别（阶段二）：本次美化产生了图元后，检查它们是否与已有图元组成结构
+  let structure: StructureResult | null = null
+  if (!smoothOnly && shapeCount > 0) {
+    const fresh = useStore.getState().doc
+    const newShapeIds = new Set(fresh.shapes.filter((sh) => !initialShapeIds.has(sh.id)).map((sh) => sh.id))
+    const newShapes = fresh.shapes.filter((sh) => newShapeIds.has(sh.id))
+    // 只看新图元附近的图元，避免画布上无关的旧图形干扰结构判断
+    const candidates = collectCandidates(fresh.shapes, newShapes, 140)
+    const detected = detectStructure(candidates)
+    if (detected && detected.members.some((id) => newShapeIds.has(id))) {
+      const patches = beautifyStructure(detected, fresh.shapes)
+      for (const p of patches) yUpdateItem('shapes', p.id, p.patch)
+      structure = detected
+      mobileLog(
+        'structure=',
+        detected.type,
+        'conf=',
+        detected.confidence.toFixed(2),
+        'members=',
+        detected.members.length,
+        'patches=',
+        patches.length,
+      )
+    }
+  }
+
+  return { count, structure }
+}
+
+// 美化一组笔画（同一图形）：收集点 → 后端/纯算法识别 → 转形状或平滑
+async function beautifyStrokeGroup(
+  strokeIds: string[],
+  smoothOnly: boolean,
+  backend: { beautify_stroke(args: { strokes: { x: number; y: number }[][] }): Promise<{ points: { x: number; y: number }[]; detectedShape: { kind: string; confidence: number } | null }> } | null,
+  pathLabel: string,
+): Promise<{ count: number; shapeCount: number }> {
+  const s = useStore.getState()
   const allPts: Pt[] = []
   const strokePts: Pt[][] = []
   const firstStroke = s.doc.strokes.find((st) => st.id === strokeIds[0])
@@ -267,7 +335,7 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
       if (pts.length < 3) continue
       yUpdateStrokePoints(id, smoothPoints(pts, 2))
     }
-    return strokeIds.length
+    return { count: strokeIds.length, shapeCount: 0 }
   }
 
   console.log(
@@ -400,11 +468,5 @@ export async function beautifySelected(smoothOnly = false): Promise<number> {
     }
   }
 
-  const totalMs = (performance.now() - t0).toFixed(1)
-  console.log(
-    `%c[beautify] %cdone %c${totalMs}ms %cshapes=${shapeCount} smoothed=${smoothedCount}`,
-    'color:#8b5cf6;font-weight:bold', '', 'color:#a1a1aa', '', '',
-  )
-
-  return strokeIds.length
+  return { count: strokeIds.length, shapeCount }
 }
