@@ -35,7 +35,9 @@ function isClosedLoop(pts: Pt[], maxDim: number): boolean {
 // - 小书写区域（textLike）：只接受“明显闭环”的形状；开放笔画/曲线（字母、汉字笔画）保持笔画；
 //   正圆 0/o（近圆形椭圆闭环）保持笔画
 // - 大区域：直线/箭头/函数本为开放图形放行；多边形/椭圆类要求首尾闭合，避免大字号文字误转
-function shouldAcceptShape(kind: string, pts: Pt[], w: number, h: number, textLike: boolean): boolean {
+//   但模型高置信度时信任模型（文字非训练类别置信度天然偏低，真形状置信度高），
+//   避免手画闭合形状因首尾小缺口被误杀
+function shouldAcceptShape(kind: string, pts: Pt[], w: number, h: number, textLike: boolean, confidence: number): boolean {
   const closed = isClosedLoop(pts, Math.max(w, h))
   const openKinds = kind === 'line' || kind === 'arrow' || kind === 'linear' || kind === 'quadratic'
   if (textLike) {
@@ -47,6 +49,7 @@ function shouldAcceptShape(kind: string, pts: Pt[], w: number, h: number, textLi
     return true
   }
   if (openKinds) return true
+  if (confidence >= 0.9) return true
   return closed
 }
 
@@ -384,7 +387,6 @@ async function beautifyStrokeGroup(
   if (smoothOnly) mobileLog('smooth-only mode -> skip shape recognition')
 
   const t1 = performance.now()
-  let smoothedCount = 0
   let shapeCount = 0
 
   let backendResult: { points: Pt[]; detectedShape: { kind: string; confidence: number } | null } | null = null
@@ -418,7 +420,7 @@ async function beautifyStrokeGroup(
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
       const isDigit = DIGIT_KINDS.has(detected.kind)
       // 路由：小书写区域 → 只接受数字（转文字）；大区域 → 只接受形状
-      const accept = isDigit ? textLike : shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike)
+      const accept = isDigit ? textLike : shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike, detected.confidence)
       if (!accept) {
         console.log('[beautify] rejected mismatched kind (small=', textLike, 'kind=', detected.kind, ') -> smooth')
         detected = null
@@ -434,8 +436,7 @@ async function beautifyStrokeGroup(
         `  %c→ ${outcome} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
         outcome === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
       )
-      if (outcome === 'func') smoothedCount++
-      else shapeCount++
+      if (outcome !== 'func') shapeCount++
     } else {
       console.log('[beautify] no shape accepted (detected=', detected?.kind ?? 'null', 'conf=', detected?.confidence?.toFixed(3) ?? '-', 'allPts=', allPts.length, ') -> smooth')
       // 未识别为形状 → 平滑合并点，更新到第一笔，删除其余
@@ -456,7 +457,6 @@ async function beautifyStrokeGroup(
           if (si >= 0 && si < smoothed.length) segPts.push(smoothed[si]!)
         }
         yUpdateStrokePoints(id, segPts.length >= 2 ? segPts : smoothed)
-        smoothedCount++
         offset += origLen
       }
     }
@@ -467,7 +467,7 @@ async function beautifyStrokeGroup(
     if (
       detected &&
       !smoothOnly &&
-      shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike) &&
+      shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike, detected.confidence) &&
       detected.confidence > 0.5 &&
       allPts.length > 10
     ) {
@@ -477,8 +477,7 @@ async function beautifyStrokeGroup(
         `  %c→ ${outcome} %c${detected.kind} %cconf=${(detected.confidence * 100).toFixed(0)}% %c${(performance.now() - t1).toFixed(1)}ms`,
         outcome === 'func' ? 'color:#3b82f6' : 'color:#22c55e', 'color:#18181b;font-weight:bold', 'color:#a1a1aa', 'color:#a1a1aa',
       )
-      if (outcome === 'func') smoothedCount++
-      else shapeCount++
+      if (outcome !== 'func') shapeCount++
     } else {
       // 未识别 → 平滑各段
       let offset = 0
@@ -496,7 +495,6 @@ async function beautifyStrokeGroup(
           if (si >= 0 && si < smoothed.length) segPts.push(smoothed[si]!)
         }
         yUpdateStrokePoints(id, segPts.length >= 2 ? segPts : smoothed)
-        smoothedCount++
         offset += origLen
       }
     }
