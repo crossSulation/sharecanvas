@@ -2,22 +2,84 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { beautifySelected } from '../lib/aiBackend'
 import { yUpdateStrokePoints, yUpdateItem } from '../lib/yroom'
-import type { Pt } from '../types'
+import { clusterStrokeGroups } from '../lib/structure'
+import { itemBounds } from './canvasHelpers'
+import type { Pt, Stroke } from '../types'
 
-interface AlignItem { id: string; x: number; y: number; kind: 'stroke' | 'shape' | 'text' }
+interface AlignItem {
+  ids: string[]
+  kinds: ('stroke' | 'shape' | 'text')[]
+  cx: number
+  cy: number
+  box: { x0: number; y0: number; x1: number; y1: number }
+}
 
+function unionBox(boxes: { x0: number; y0: number; x1: number; y1: number }[]) {
+  return {
+    x0: Math.min(...boxes.map((b) => b.x0)),
+    y0: Math.min(...boxes.map((b) => b.y0)),
+    x1: Math.max(...boxes.map((b) => b.x1)),
+    y1: Math.max(...boxes.map((b) => b.y1)),
+  }
+}
+
+function boxesOverlap(a: AlignItem, b: AlignItem): boolean {
+  return a.box.x1 >= b.box.x0 && b.box.x1 >= a.box.x0 && a.box.y1 >= b.box.y0 && b.box.y1 >= a.box.y0
+}
+
+const pairKey = (i: number, j: number) => (i < j ? `${i}-${j}` : `${j}-${i}`)
+
+// 收集选中的“绘制体”：
+// - 笔画按空间聚类合并（多笔一个图形算一个绘制体，避免对齐时拆散）
+// - 形状通过 arrow 的 attach 关系连通（箭头+两端形状算一个绘制体）
+// - 文字独立成体
 function collectItems(): AlignItem[] {
   const s = useStore.getState()
   const items: AlignItem[] = []
+
+  // 形状连通分量（arrow 的 attach 作为边）
+  const selShapes = s.selected.filter((id) => s.doc.shapes.some((sh) => sh.id === id))
+  const parent = new Map<string, string>(selShapes.map((id) => [id, id]))
+  const find = (a: string): string => {
+    const p = parent.get(a)!
+    if (p === a) return a
+    const r = find(p)
+    parent.set(a, r)
+    return r
+  }
+  const union = (a: string, b: string) => parent.set(find(a), find(b))
+  for (const id of selShapes) {
+    const sh = s.doc.shapes.find((x) => x.id === id)!
+    if (sh.attachStartId && parent.has(sh.attachStartId)) union(id, sh.attachStartId)
+    if (sh.attachEndId && parent.has(sh.attachEndId)) union(id, sh.attachEndId)
+  }
+  const shapeGroups = new Map<string, string[]>()
+  for (const id of selShapes) {
+    const root = find(id)
+    const g = shapeGroups.get(root) ?? []
+    g.push(id)
+    shapeGroups.set(root, g)
+  }
+  for (const group of shapeGroups.values()) {
+    const box = unionBox(group.map((id) => itemBounds(s.doc.shapes.find((x) => x.id === id)!)))
+    items.push({ ids: group, kinds: group.map(() => 'shape' as const), cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, box })
+  }
+
   for (const id of s.selected) {
-    const sh = s.doc.shapes.find((x) => x.id === id)
-    if (sh) { items.push({ id, x: (sh.x0 + sh.x1) / 2, y: (sh.y0 + sh.y1) / 2, kind: 'shape' }); continue }
-    const st = s.doc.strokes.find((x) => x.id === id)
-    if (st && st.points.length > 0) {
-      const xs = st.points.map((p) => (typeof p === 'object' && 'x' in p ? Number(p.x) : 0))
-      const ys = st.points.map((p) => (typeof p === 'object' && 'y' in p ? Number(p.y) : 0))
-      items.push({ id, x: xs.reduce((a, b) => a + b, 0) / xs.length, y: ys.reduce((a, b) => a + b, 0) / ys.length, kind: 'stroke' })
+    const t = s.doc.texts.find((x) => x.id === id)
+    if (t) {
+      const box = itemBounds(t)
+      items.push({ ids: [t.id], kinds: ['text'], cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, box })
     }
+  }
+
+  // 笔画空间聚类（相连笔画 = 一个图形）
+  const strokes = s.selected
+    .map((id) => s.doc.strokes.find((st) => st.id === id))
+    .filter((st): st is Stroke => !!st)
+  for (const group of clusterStrokeGroups(strokes)) {
+    const box = unionBox(group.map((id) => itemBounds(s.doc.strokes.find((st) => st.id === id)!)))
+    items.push({ ids: group, kinds: group.map(() => 'stroke' as const), cx: (box.x0 + box.x1) / 2, cy: (box.y0 + box.y1) / 2, box })
   }
   return items
 }
@@ -36,43 +98,103 @@ function moveItem(id: string, kind: 'stroke' | 'shape' | 'text', dx: number, dy:
       return p
     })
     yUpdateStrokePoints(st.id, newPts as Pt[])
+  } else if (kind === 'text') {
+    const t = s.doc.texts.find((x) => x.id === id)!
+    yUpdateItem('texts', t.id, { x: t.x + dx, y: t.y + dy })
   }
+}
+
+function moveItems(it: AlignItem, dx: number, dy: number) {
+  if (!dx && !dy) return
+  for (let i = 0; i < it.ids.length; i++) moveItem(it.ids[i]!, it.kinds[i]!, dx, dy)
+  it.box = { x0: it.box.x0 + dx, y0: it.box.y0 + dy, x1: it.box.x1 + dx, y1: it.box.y1 + dy }
+  it.cx += dx
+  it.cy += dy
+}
+
+// bbox 碰撞检测：把“对齐后新产生”的重叠推开（对齐前就重叠的绘制体视为连接/一体，不拆开）
+function resolveNewOverlaps(items: AlignItem[], pushAxis: 'x' | 'y', preOverlap: Set<string>) {
+  for (let pass = 0; pass < Math.max(items.length, 3); pass++) {
+    let moved = false
+    for (let i = 0; i < items.length; i++) {
+      for (let j = i + 1; j < items.length; j++) {
+        if (preOverlap.has(pairKey(i, j))) continue
+        const a = items[i]!
+        const b = items[j]!
+        const overlap =
+          pushAxis === 'x'
+            ? Math.min(a.box.x1, b.box.x1) - Math.max(a.box.x0, b.box.x0)
+            : Math.min(a.box.y1, b.box.y1) - Math.max(a.box.y0, b.box.y0)
+        if (overlap <= 0) continue
+        const half = overlap / 2 + 2
+        if (pushAxis === 'x') {
+          const dir = a.cx < b.cx ? 1 : -1
+          moveItems(a, -dir * half, 0)
+          moveItems(b, dir * half, 0)
+        } else {
+          const dir = a.cy < b.cy ? 1 : -1
+          moveItems(a, 0, -dir * half)
+          moveItems(b, 0, dir * half)
+        }
+        moved = true
+      }
+    }
+    if (!moved) break
+  }
+}
+
+function preOverlapPairs(items: AlignItem[]): Set<string> {
+  const set = new Set<string>()
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      if (boxesOverlap(items[i]!, items[j]!)) set.add(pairKey(i, j))
+    }
+  }
+  return set
 }
 
 function alignHorizontal() {
   const items = collectItems()
   if (items.length < 2) return
-  const targetX = items.reduce((a, b) => a + b.x, 0) / items.length
-  for (const item of items) moveItem(item.id, item.kind, targetX - item.x, 0)
+  const preOverlap = preOverlapPairs(items)
+  const targetX = items.reduce((a, b) => a + b.cx, 0) / items.length
+  for (const it of items) moveItems(it, targetX - it.cx, 0)
+  resolveNewOverlaps(items, 'y', preOverlap)
 }
 
 function alignVertical() {
   const items = collectItems()
   if (items.length < 2) return
-  const targetY = items.reduce((a, b) => a + b.y, 0) / items.length
-  for (const item of items) moveItem(item.id, item.kind, 0, targetY - item.y)
+  const preOverlap = preOverlapPairs(items)
+  const targetY = items.reduce((a, b) => a + b.cy, 0) / items.length
+  for (const it of items) moveItems(it, 0, targetY - it.cy)
+  resolveNewOverlaps(items, 'x', preOverlap)
 }
 
 function distributeHorizontal() {
   const items = collectItems()
   if (items.length < 3) return
-  items.sort((a, b) => a.x - b.x)
+  items.sort((a, b) => a.cx - b.cx)
+  const preOverlap = preOverlapPairs(items)
   const first = items[0]!, last = items[items.length - 1]!
   for (let i = 1; i < items.length - 1; i++) {
-    const targetX = first.x + (last.x - first.x) * i / (items.length - 1)
-    moveItem(items[i]!.id, items[i]!.kind, targetX - items[i]!.x, 0)
+    const targetX = first.cx + (last.cx - first.cx) * i / (items.length - 1)
+    moveItems(items[i]!, targetX - items[i]!.cx, 0)
   }
+  resolveNewOverlaps(items, 'x', preOverlap)
 }
 
 function distributeVertical() {
   const items = collectItems()
   if (items.length < 3) return
-  items.sort((a, b) => a.y - b.y)
+  items.sort((a, b) => a.cy - b.cy)
+  const preOverlap = preOverlapPairs(items)
   const first = items[0]!, last = items[items.length - 1]!
   for (let i = 1; i < items.length - 1; i++) {
-    const targetY = first.y + (last.y - first.y) * i / (items.length - 1)
-    moveItem(items[i]!.id, items[i]!.kind, 0, targetY - items[i]!.y)
+    const targetY = first.cy + (last.cy - first.cy) * i / (items.length - 1)
+    moveItems(items[i]!, 0, targetY - items[i]!.cy)
   }
+  resolveNewOverlaps(items, 'y', preOverlap)
 }
 
 export default function AIPanel() {

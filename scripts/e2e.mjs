@@ -782,6 +782,75 @@ async function runTests(browser) {
     assert(new Set(widths).size === 1, `柱状图宽度应统一，实际 ${JSON.stringify(widths)}`)
   })
 
+  await test('对齐：水平居中保持绘制体不重叠（bbox 碰撞检测）', async () => {
+    const ctx = await browser.createBrowserContext()
+    const p = await ctx.newPage()
+    p.on('pageerror', (e) => pageErrors.push(e.message))
+    await p.setViewport({ width: 1280, height: 800 })
+    await p.evaluateOnNewDocument(() => localStorage.setItem('sharecanvas:hint:v1', '1'))
+    await p.goto(`${BASE}/?room=ALIGNTEST`, { waitUntil: 'domcontentloaded' })
+    await wait(1200)
+
+    const rect = async (x0, y0, x1, y1) => {
+      await p.mouse.move(x0, y0)
+      await p.mouse.down()
+      await p.mouse.move(x1, y0, { steps: 4 })
+      await p.mouse.move(x1, y1, { steps: 6 })
+      await p.mouse.move(x0, y1, { steps: 4 })
+      await p.mouse.move(x0, y0, { steps: 6 })
+      await p.mouse.up()
+      await wait(250)
+    }
+    await p.evaluate(() => document.querySelectorAll('button.h-9')[2].click()) // pen
+    await wait(200)
+    // 两个矩形 Y 范围刻意重叠：水平居中后若不避让会叠在一起
+    await rect(200, 200, 320, 320)
+    await rect(500, 250, 620, 370)
+
+    await p.evaluate(() => document.querySelectorAll('button.h-9')[0].click()) // select
+    await wait(200)
+    await p.mouse.move(150, 150)
+    await p.mouse.down()
+    for (const [x, y] of [
+      [680, 150],
+      [680, 420],
+      [150, 420],
+      [150, 150],
+    ]) {
+      await p.mouse.move(x, y, { steps: 6 })
+    }
+    await p.mouse.up()
+    await wait(400)
+    const selN = await p.evaluate(() => window.__sharecanvasSelected().length)
+    assert(selN === 2, `应选中 2 个绘制体，实际 ${selN}`)
+
+    const clicked = await p.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('水平居中'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '水平居中按钮应出现')
+    await wait(600)
+
+    const bounds = await p.evaluate(() => {
+      const d = window.__sharecanvasDoc()
+      return d.strokes.map((st) => {
+        const xs = st.points.map((pt) => pt.x)
+        const ys = st.points.map((pt) => pt.y)
+        return { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) }
+      })
+    })
+    assert(bounds.length === 2, `应有 2 个笔画，实际 ${bounds.length}`)
+    const cxs = bounds.map((bb) => (bb.x0 + bb.x1) / 2)
+    assert(Math.abs(cxs[0] - cxs[1]) < 3, `中心 X 应对齐，实际 ${JSON.stringify(cxs)}`)
+    const a = bounds[0]
+    const b = bounds[1]
+    const overlap = a.x1 >= b.x0 && b.x1 >= a.x0 && a.y1 >= b.y0 && b.y1 >= a.y0
+    assert(!overlap, `对齐后两个绘制体不应重叠（${JSON.stringify(bounds)}）`)
+    await ctx.close()
+  })
+
   await test('橡皮擦：区域遮罩写入文档（不删除笔迹数据）', async () => {
     const before = (await readDoc()).strokes.length
     await clickTool(4)
