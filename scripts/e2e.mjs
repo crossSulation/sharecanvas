@@ -617,6 +617,62 @@ async function runTests(browser) {
     )
   })
 
+  await test('AI 美化：小尺寸手写字母保持笔画，不转形状', async () => {
+    const ctx = await browser.createBrowserContext()
+    const p = await ctx.newPage()
+    p.on('pageerror', (e) => pageErrors.push(e.message))
+    await p.setViewport({ width: 1280, height: 800 })
+    await p.evaluateOnNewDocument(() => localStorage.setItem('sharecanvas:hint:v1', '1'))
+    await p.goto(`${BASE}/?room=TEXTPROTECT`, { waitUntil: 'domcontentloaded' })
+    await wait(1200)
+
+    // 手写一个约 60px 的开放曲线（类似字母 S），不应被识别成形状
+    await p.evaluate(() => document.querySelectorAll('button.h-9')[2].click()) // pen
+    await wait(200)
+    await p.mouse.move(210, 310)
+    await p.mouse.down()
+    for (const [x, y] of [
+      [230, 295],
+      [215, 310],
+      [235, 325],
+      [220, 340],
+    ]) {
+      await p.mouse.move(x, y, { steps: 4 })
+    }
+    await p.mouse.up()
+    await wait(500)
+    const before = await p.evaluate(() => {
+      const d = window.__sharecanvasDoc()
+      return { shapes: d.shapes.length, texts: d.texts.length }
+    })
+
+    await p.evaluate(() => document.querySelectorAll('button.h-9')[0].click()) // select
+    await wait(200)
+    await p.mouse.click(220, 310)
+    await wait(300)
+    const clicked = await p.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find((el) => el.textContent?.includes('美化笔画'))
+      if (!b) return false
+      b.click()
+      return true
+    })
+    assert(clicked, '手写字母应能出现美化按钮')
+    await wait(2000)
+    const after = await p.evaluate(() => {
+      const d = window.__sharecanvasDoc()
+      return { shapes: d.shapes.length, texts: d.texts.length, strokes: d.strokes.length }
+    })
+    assert(
+      after.shapes === before.shapes,
+      `手写字母不应被转成形状（形状 ${before.shapes}->${after.shapes}）`,
+    )
+    assert(
+      after.texts > before.texts || after.strokes > 0,
+      '手写字母应保持为笔画或转文字',
+    )
+    await ctx.close()
+  })
+
   await test('AI 美化：正圆画法的“0”不转椭圆（保持笔画或转文字）', async () => {
     // 画一个约 100px 的正圆（w≈h），与椭圆像素级相似
     const cx = 400

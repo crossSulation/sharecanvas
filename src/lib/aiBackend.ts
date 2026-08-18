@@ -30,14 +30,24 @@ function isClosedLoop(pts: Pt[], maxDim: number): boolean {
   return Math.hypot(first.x - last.x, first.y - last.y) <= Math.max(10, maxDim * 0.2)
 }
 
-// 小书写区域里非数字类别的放行规则：
-// 只保护“正圆 0”——小尺寸椭圆闭环（近圆形）保持笔画，其余形状（rect/line/triangle 等）允许转形状
-function acceptSmallKind(kind: string, pts: Pt[], w: number, h: number): boolean {
-  if (kind === 'ellipse' && isClosedLoop(pts, Math.max(w, h))) {
-    const aspect = w / Math.max(h, 1)
-    if (aspect > 0.6 && aspect < 1.67) return false
+// 识别结果是否转成形状（防手写文字/字母被误转形状）：
+// 模型只有 13 形状 + 0-9，文字没有对应类别，会被强行归到最近的形状类。
+// - 小书写区域（textLike）：只接受“明显闭环”的形状；开放笔画/曲线（字母、汉字笔画）保持笔画；
+//   正圆 0/o（近圆形椭圆闭环）保持笔画
+// - 大区域：直线/箭头/函数本为开放图形放行；多边形/椭圆类要求首尾闭合，避免大字号文字误转
+function shouldAcceptShape(kind: string, pts: Pt[], w: number, h: number, textLike: boolean): boolean {
+  const closed = isClosedLoop(pts, Math.max(w, h))
+  const openKinds = kind === 'line' || kind === 'arrow' || kind === 'linear' || kind === 'quadratic'
+  if (textLike) {
+    if (openKinds || !closed) return false
+    if (kind === 'ellipse') {
+      const aspect = w / Math.max(h, 1)
+      return !(aspect > 0.6 && aspect < 1.67)
+    }
+    return true
   }
-  return true
+  if (openKinds) return true
+  return closed
 }
 
 let debugSeq = 0
@@ -408,7 +418,7 @@ async function beautifyStrokeGroup(
     if (detected && detected.confidence > 0.5 && allPts.length > 10) {
       const isDigit = DIGIT_KINDS.has(detected.kind)
       // 路由：小书写区域 → 只接受数字（转文字）；大区域 → 只接受形状
-      const accept = textLike ? isDigit || acceptSmallKind(detected.kind, allPts, bboxW, bboxH) : !isDigit
+      const accept = isDigit ? textLike : shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike)
       if (!accept) {
         console.log('[beautify] rejected mismatched kind (small=', textLike, 'kind=', detected.kind, ') -> smooth')
         detected = null
@@ -457,7 +467,7 @@ async function beautifyStrokeGroup(
     if (
       detected &&
       !smoothOnly &&
-      (textLike ? acceptSmallKind(detected.kind, allPts, bboxW, bboxH) : true) &&
+      shouldAcceptShape(detected.kind, allPts, bboxW, bboxH, textLike) &&
       detected.confidence > 0.5 &&
       allPts.length > 10
     ) {
