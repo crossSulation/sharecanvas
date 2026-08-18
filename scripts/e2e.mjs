@@ -803,9 +803,9 @@ async function runTests(browser) {
     }
     await p.evaluate(() => document.querySelectorAll('button.h-9')[2].click()) // pen
     await wait(200)
-    // 两个矩形 Y 范围刻意重叠：水平居中后若不避让会叠在一起
+    // 两个矩形 X 范围刻意重叠：水平居中（排成一行）后若不避让会叠在一起
     await rect(200, 200, 320, 320)
-    await rect(500, 250, 620, 370)
+    await rect(250, 500, 370, 620)
 
     await p.evaluate(() => document.querySelectorAll('button.h-9')[0].click()) // select
     await wait(200)
@@ -813,8 +813,8 @@ async function runTests(browser) {
     await p.mouse.down()
     for (const [x, y] of [
       [680, 150],
-      [680, 420],
-      [150, 420],
+      [680, 660],
+      [150, 660],
       [150, 150],
     ]) {
       await p.mouse.move(x, y, { steps: 6 })
@@ -842,8 +842,8 @@ async function runTests(browser) {
       })
     })
     assert(bounds.length === 2, `应有 2 个笔画，实际 ${bounds.length}`)
-    const cxs = bounds.map((bb) => (bb.x0 + bb.x1) / 2)
-    assert(Math.abs(cxs[0] - cxs[1]) < 3, `中心 X 应对齐，实际 ${JSON.stringify(cxs)}`)
+    const cys = bounds.map((bb) => (bb.y0 + bb.y1) / 2)
+    assert(Math.abs(cys[0] - cys[1]) < 3, `中心 Y 应对齐，实际 ${JSON.stringify(cys)}`)
     const a = bounds[0]
     const b = bounds[1]
     const overlap = a.x1 >= b.x0 && b.x1 >= a.x0 && a.y1 >= b.y0 && b.y1 >= a.y0
