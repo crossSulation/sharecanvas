@@ -1,5 +1,6 @@
 import { drawLayerContent, drawLayerContentGL, type WorldRect } from './layerRender'
 import { WebGLRenderer } from './webglRender'
+import { GlyphAtlas } from './glyphAtlas'
 import type { Doc } from '../types'
 
 interface RasterMessage {
@@ -43,23 +44,21 @@ if (typeof OffscreenCanvas === 'undefined') {
 
     try {
       const off = new OffscreenCanvas(cw, ch)
-      // 层内有文字时走 2D（WebGL 无内置文字）；无文字时优先 WebGL（硬件加速）
-      const hasText = msg.doc.texts.some((t) => layerOf(t.layer) === msg.layerId)
+      // 优先 WebGL（硬件加速，含文字字形图集）；不支持时回退 2D 光栅化
       let gl: WebGLRenderingContext | null = null
-      if (!hasText) {
-        // 用独立小画布探测 WebGL，避免探测失败后锁定正式画布的上下文类型
-        const probe = new OffscreenCanvas(1, 1)
-        const supported = !!(probe.getContext('webgl2') || probe.getContext('webgl'))
-        if (supported) {
-          const opts: WebGLContextAttributes = { antialias: true, alpha: true, premultipliedAlpha: true }
-          gl = (off.getContext('webgl2', opts) || off.getContext('webgl', opts)) as WebGLRenderingContext | null
-        }
+      // 用独立小画布探测 WebGL，避免探测失败后锁定正式画布的上下文类型
+      const probe = new OffscreenCanvas(1, 1)
+      const supported = !!(probe.getContext('webgl2') || probe.getContext('webgl'))
+      if (supported) {
+        const opts: WebGLContextAttributes = { antialias: true, alpha: true, premultipliedAlpha: true }
+        gl = (off.getContext('webgl2', opts) || off.getContext('webgl', opts)) as WebGLRenderingContext | null
       }
 
       if (gl) {
         const renderer = new WebGLRenderer(gl)
+        const atlas = new GlyphAtlas(gl)
         renderer.begin(view)
-        drawLayerContentGL(renderer, msg.doc, msg.layerId, msg.layerOpacity, layerOf, view)
+        drawLayerContentGL(renderer, atlas, msg.doc, msg.layerId, msg.layerOpacity, layerOf, view, msg.zoom * msg.dpr)
       } else {
         const ctx = off.getContext('2d')
         if (!ctx) {

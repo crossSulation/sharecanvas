@@ -279,8 +279,8 @@ async function runTests(browser) {
     await wait(800) // 等待 Worker 光栅化
     const reddish = () =>
       page.evaluate(() => {
-        const c = document.querySelector('canvas')
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const snap = window.__sharecanvasCanvasData()
+        const d = snap ? snap.data : new Uint8ClampedArray(0)
         let count = 0
         for (let i = 0; i < d.length; i += 4) {
           if (d[i] > 200 && d[i + 1] < 120 && d[i + 2] < 120 && d[i + 3] > 200) count++
@@ -328,8 +328,8 @@ async function runTests(browser) {
     await wait(800)
     const pinkish = () =>
       page.evaluate(() => {
-        const c = document.querySelector('canvas')
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const snap = window.__sharecanvasCanvasData()
+        const d = snap ? snap.data : new Uint8ClampedArray(0)
         let count = 0
         for (let i = 0; i < d.length; i += 4) {
           if (d[i] > 200 && d[i + 1] < 130 && d[i + 2] > 140 && d[i + 3] > 200) count++
@@ -390,8 +390,8 @@ async function runTests(browser) {
   await test('刷新后可在擦除区域继续绘制（序号续接）', async () => {
     const blueCount = () =>
       page.evaluate(() => {
-        const c = document.querySelector('canvas')
-        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data
+        const snap = window.__sharecanvasCanvasData()
+        const d = snap ? snap.data : new Uint8ClampedArray(0)
         let count = 0
         for (let i = 0; i < d.length; i += 4) {
           if (d[i] < 130 && d[i + 1] > 150 && d[i + 2] > 200 && d[i + 3] > 200) count++

@@ -1,4 +1,4 @@
-import { drawShape, drawStroke, drawStrokeLive, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, axesParams, parabolaPoints, type WorldRect } from "../lib/layerRender"
+import { polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, axesParams, parabolaPoints } from "../lib/layerRender"
 import { DEFAULT_LAYER_ID } from "../lib/yroom"
 import type { Doc, Pt, Shape, Stroke, TextItem } from "../types"
 
@@ -20,7 +20,6 @@ export type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'w' | 'e'
 export type AxesHandle = 'xl' | 'xr' | 'yt' | 'yb' | 'origin'
 
 export interface LayerCache {
-  canvas: HTMLCanvasElement
   zoom: number
   cam: { x: number; y: number }
   width: number
@@ -39,102 +38,6 @@ export interface RasterParams {
   margin: number
   layerOpacity: number
   defaultLayerId: string
-}
-
-export function rasterizeLayerSync(
-  existing: LayerCache | undefined,
-  doc: Doc,
-  layerId: string,
-  layerOpacity: number,
-  cam: { x: number; y: number },
-  zoom: number,
-  w: number,
-  h: number,
-  dpr: number,
-  margin: number,
-): LayerCache {
-  const layerOf = (l?: string) =>
-    l && doc.layers.some((x) => x.id === l) ? l : DEFAULT_LAYER_ID
-  const halfW = w / 2 / zoom
-  const halfH = h / 2 / zoom
-  const left = cam.x - halfW * margin
-  const top = cam.y - halfH * margin
-  const view: WorldRect = {
-    x0: left,
-    y0: top,
-    x1: left + halfW * margin * 2,
-    y1: top + halfH * margin * 2,
-  }
-  const cw = Math.max(1, Math.ceil(halfW * margin * 2 * zoom * dpr))
-  const ch = Math.max(1, Math.ceil(halfH * margin * 2 * zoom * dpr))
-  const canvas = existing?.canvas ?? document.createElement('canvas')
-  if (canvas.width !== cw || canvas.height !== ch) {
-    canvas.width = cw
-    canvas.height = ch
-  }
-  const octx = canvas.getContext('2d')
-  if (octx) {
-    octx.setTransform(zoom * dpr, 0, 0, zoom * dpr, 0, 0)
-    octx.translate(-left, -top)
-    octx.clearRect(left, top, halfW * margin * 2, halfH * margin * 2)
-    drawLayerContent(octx, doc, layerId, layerOpacity, layerOf, view)
-  }
-  const cache: LayerCache = existing ?? { canvas, zoom: 0, cam: { x: 0, y: 0 }, width: 0, height: 0, ready: false }
-  cache.zoom = zoom
-  cache.cam = { x: cam.x, y: cam.y }
-  cache.width = cw
-  cache.height = ch
-  cache.ready = true
-  return cache
-}
-
-export function drawGestureOverlay(
-  ctx: CanvasRenderingContext2D,
-  doc: Doc,
-  it: Interaction | null,
-  w: number,
-  h: number,
-  zoom: number,
-  camera: { x: number; y: number },
-  dpr: number,
-): void {
-  if (!it) return
-  ctx.save()
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  ctx.translate(w / 2 - camera.x * zoom, h / 2 - camera.y * zoom)
-  ctx.scale(zoom, zoom)
-  if (it.type === 'stroke') {
-    drawStrokeLive(ctx, it.stroke, 1)
-  } else if (it.type === 'shape') {
-    const sh = doc.shapes.find((x) => x.id === it.id)
-    if (sh) drawShape(ctx, sh, doc)
-  } else if (it.type === 'move') {
-    const dx = it.dx
-    const dy = it.dy
-    for (const ref of it.items) {
-      if (ref.kind === 'stroke') {
-        const s = ref.item as Stroke
-        drawStroke(
-          ctx,
-          { ...s, points: s.points.map((p) => ({ ...p, x: p.x + dx, y: p.y + dy })) },
-          1,
-        )
-      } else if (ref.kind === 'shape') {
-        const sh = ref.item as Shape
-        const preview: Shape = { ...sh, x0: sh.x0 + dx, y0: sh.y0 + dy, x1: sh.x1 + dx, y1: sh.y1 + dy }
-        if (sh.kind === 'axes' && sh.params) {
-          preview.params = sh.params.map((v, i) => (i % 2 === 0 ? v + dx : v + dy))
-        }
-        drawShape(ctx, preview, doc)
-      } else {
-        const t = ref.item as TextItem
-        ctx.fillStyle = t.color
-        ctx.font = `${t.size}px ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", sans-serif`
-        ctx.fillText(t.text, t.x + dx, t.y + dy)
-      }
-    }
-  }
-  ctx.restore()
 }
 
 export function eraserRadius(size: number): number {
@@ -249,48 +152,6 @@ export function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: numbe
   ctx.arcTo(x, y + h, x, y, rr)
   ctx.arcTo(x, y, x + w, y, rr)
   ctx.closePath()
-}
-
-export function drawGrid(ctx: CanvasRenderingContext2D, cam: { x: number; y: number; zoom: number }, w: number, h: number): void {
-  let step = 40
-  while (step * cam.zoom < 28) step *= 2
-  while (step * cam.zoom > 240) step /= 2
-  const major = step * 5
-  const x0 = Math.floor((cam.x - w / 2 / cam.zoom) / step) * step
-  const y0 = Math.floor((cam.y - h / 2 / cam.zoom) / step) * step
-  const x1 = cam.x + w / 2 / cam.zoom
-  const y1 = cam.y + h / 2 / cam.zoom
-  ctx.lineWidth = 1 / cam.zoom
-  for (let x = x0; x <= x1; x += step) {
-    const isMajor = Math.abs(Math.round(x / major) * major - x) < 0.001
-    ctx.strokeStyle = isMajor ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.045)'
-    ctx.beginPath()
-    ctx.moveTo(x, y0)
-    ctx.lineTo(x, y1)
-    ctx.stroke()
-  }
-  for (let y = y0; y <= y1; y += step) {
-    const isMajor = Math.abs(Math.round(y / major) * major - y) < 0.001
-    ctx.strokeStyle = isMajor ? 'rgba(0,0,0,0.09)' : 'rgba(0,0,0,0.045)'
-    ctx.beginPath()
-    ctx.moveTo(x0, y)
-    ctx.lineTo(x1, y)
-    ctx.stroke()
-  }
-  if (cam.x - w / 2 / cam.zoom < 0 && 0 < x1) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.14)'
-    ctx.beginPath()
-    ctx.moveTo(0, y0)
-    ctx.lineTo(0, y1)
-    ctx.stroke()
-  }
-  if (cam.y - h / 2 / cam.zoom < 0 && 0 < y1) {
-    ctx.strokeStyle = 'rgba(0,0,0,0.14)'
-    ctx.beginPath()
-    ctx.moveTo(x0, 0)
-    ctx.lineTo(x1, 0)
-    ctx.stroke()
-  }
 }
 
 export function itemBounds(item: Stroke | Shape | TextItem): { x0: number; y0: number; x1: number; y1: number } {

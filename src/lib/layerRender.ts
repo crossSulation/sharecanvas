@@ -2,6 +2,8 @@ import { getStroke } from 'perfect-freehand'
 import type { StrokeOptions } from 'perfect-freehand'
 import type { Doc, Pt, Shape, Stroke, TextItem } from '../types'
 import { WebGLRenderer, parseColor } from './webglRender'
+import { scaleBucket } from './glyphAtlas'
+import type { GlyphAtlas } from './glyphAtlas'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
@@ -625,8 +627,7 @@ export function strokeOutlinePoints(s: Stroke): Pt[] {
 
 // ---------- WebGL 渲染路径（GPU 光栅化笔画/形状/橡皮擦，不含文字） ----------
 
-function roundRectPoints(x0: number, y0: number, x1: number, y1: number, r: number): Pt[] {
-  const corners = [
+export function roundRectPoints(x0: number, y0: number, x1: number, y1: number, r: number): Pt[] {  const corners = [
     { cx: x0 + r, cy: y0 + r, a0: Math.PI, a1: Math.PI * 1.5 },
     { cx: x1 - r, cy: y0 + r, a0: Math.PI * 1.5, a1: Math.PI * 2 },
     { cx: x1 - r, cy: y1 - r, a0: 0, a1: Math.PI * 0.5 },
@@ -643,7 +644,7 @@ function roundRectPoints(x0: number, y0: number, x1: number, y1: number, r: numb
   return pts
 }
 
-function drawStrokeGL(r: WebGLRenderer, s: Stroke, layerOpacity: number): void {
+export function drawStrokeGL(r: WebGLRenderer, s: Stroke, layerOpacity: number): void {
   const color = parseColor(s.color)
   const preset = brushPreset(s.kind)
   const alpha = layerOpacity * (preset.opacity ?? s.opacity)
@@ -657,7 +658,7 @@ function drawStrokeGL(r: WebGLRenderer, s: Stroke, layerOpacity: number): void {
   if (points.length >= 3) r.fillPolygon(points, color, alpha)
 }
 
-function drawShapeGL(r: WebGLRenderer, sh: Shape, doc: Doc, alpha: number): void {
+export function drawShapeGL(r: WebGLRenderer, sh: Shape, doc: Doc, alpha: number): void {
   const color = parseColor(sh.color)
   const w = sh.size
   const closed = (pts: Pt[]) => r.strokePolyline(pts, w, color, alpha, true)
@@ -722,15 +723,17 @@ function drawShapeGL(r: WebGLRenderer, sh: Shape, doc: Doc, alpha: number): void
   }
 }
 
-// 用 WebGL 光栅化某一层（笔画 + 形状 + 橡皮擦洞），不含文字。
-// 文字层需走 2D 路径（render.worker.ts 根据层内是否有文字决定用哪条路径）。
+// 用 WebGL 光栅化某一层（笔画 + 形状 + 文字 + 橡皮擦洞）。
+// pixelScale = 图层光栅化尺度（zoom*dpr），决定字形分辨率档位。
 export function drawLayerContentGL(
   r: WebGLRenderer,
+  atlas: GlyphAtlas,
   doc: Doc,
   layerId: string,
   layerOpacity: number,
   layerOf: (l?: string) => string,
   view?: WorldRect,
+  pixelScale = 1,
 ): void {
   const holesAfter = (seq: number) => {
     r.setBlend('destination-out')
@@ -754,4 +757,75 @@ export function drawLayerContentGL(
     drawShapeGL(r, sh, doc, layerOpacity)
     holesAfter(sh.seq ?? 0)
   }
+  for (const t of doc.texts) {
+    if (layerOf(t.layer) !== layerId) continue
+    if (view && !intersects(view, textBounds(t))) continue
+    drawTextGL(r, atlas, t, doc, layerOpacity, pixelScale)
+    holesAfter(t.seq ?? 0)
+  }
+}
+
+// 文字（WebGL）：字形图集 + tint 着色。quad 用世界坐标绘制（由 begin 矩阵统一缩放）。
+// 可复用的底层文字绘制：主画布远程光标名字、文字层、手势移动预览共用。
+export interface TextDrawOpts {
+  align?: 'left' | 'center'
+  baseline?: 'alphabetic' | 'middle'
+}
+
+export function drawTextString(
+  r: WebGLRenderer,
+  atlas: GlyphAtlas,
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  alpha: number,
+  pixelScale: number,
+  opts?: TextDrawOpts,
+): void {
+  const rgba = parseColor(color)
+  const bucket = scaleBucket(pixelScale)
+  let total = 0
+  for (const ch of text) total += atlas.glyph(ch, size, bucket).adv
+  const align = opts?.align ?? 'left'
+  const baseline = opts?.baseline ?? 'alphabetic'
+  let penX = align === 'center' ? x - total / 2 : x
+  const baselineY = baseline === 'middle' ? y + size * 0.35 : y
+  for (const ch of text) {
+    const g = atlas.glyph(ch, size, bucket)
+    if (!g.skip && g.w > 0 && g.h > 0) {
+      const y0 = baselineY - g.baselineOffset
+      r.drawTexturedQuad(penX, y0, penX + g.w, y0 + g.h, atlas.texture, g.u0, g.v0, g.u1, g.v1, rgba, alpha)
+    }
+    penX += g.adv
+  }
+}
+
+// 实时笔画（WebGL）：折线圆头渲染，O(1)/段；提交后再用完整 freehand 轮廓重光栅化
+export function drawStrokeLiveGL(r: WebGLRenderer, s: Stroke, alpha: number): void {
+  const color = parseColor(s.color)
+  const preset = brushPreset(s.kind)
+  const effSize = s.size * (preset.sizeScale ?? 1)
+  const a = alpha * (preset.opacity ?? s.opacity)
+  if (s.points.length === 1) {
+    r.fillCircle(s.points[0]!, Math.max(0.5, effSize / 2), color, a)
+    return
+  }
+  r.strokePolyline(s.points, effSize, color, a, false)
+}
+
+function drawTextGL(
+  r: WebGLRenderer,
+  atlas: GlyphAtlas,
+  t: TextItem,
+  doc: Doc,
+  alpha: number,
+  pixelScale: number,
+): void {
+  const pos = textWorldPos(t, doc)
+  drawTextString(r, atlas, t.text, pos.x, pos.y, t.size, t.color, alpha, pixelScale, {
+    align: t.attachId ? 'center' : 'left',
+    baseline: t.attachId ? 'middle' : 'alphabetic',
+  })
 }

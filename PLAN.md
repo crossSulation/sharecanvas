@@ -489,6 +489,24 @@ fps=43 drawAvg=0.46ms drawMax=2.6ms
 - [x] 诊断/性能上报：`__sharecanvasDiag`（worker/offscreen/dpr）+ `[perf]` 每 2s 写 Rust 日志，`?debug` overlay 显示 worker 状态
 - **兜底**：WebView 不支持 WebGL/worker 时自动回退 2D 光栅化；文字层始终 2D 合成
 
+### 全 WebGL 化（两阶段，2026-08-18 起）
+
+目标：彻底去掉 Canvas 2D 的图层光栅化/合成热路径，统一走 WebGL2（renderer 抽象留 WebGPU 接口，后续可插）。
+
+- **阶段 1（已完成）文字字形图集**：新增 `src/lib/glyphAtlas.ts`
+  - 字形用离屏 2D 画布栅格化为白色位图，按 (字号, 分辨率档位, 字符) 缓存（`fillText` 只做一次），打包进一张 WebGL 纹理（shelf 打包，超限翻倍扩容）
+  - 分辨率档位 `scaleBucket(zoom*dpr)` 归一到 2 的幂（1/2/4/8），缩放换档才重栅格化
+  - `webglRender.ts` 新增纹理 quad 程序（`drawTexturedQuad`，采样字形 alpha + tint 着色 + premultiplied alpha）
+  - `layerRender.ts` 新增 `drawTextGL` 并接入 `drawLayerContentGL`（含文字层）；`render.worker.ts` 去除「层内有文字走 2D」回退，**始终优先 WebGL**（仅 WebGL 不可用时回退 2D）
+  - 消除「文字层 2D / 其余 WebGL」双路径渲染不一致（闪烁根源之一）
+- **阶段 2（已完成）主画布 WebGL**：
+  - 新增 `src/lib/mainGL.ts`：`MainGL`（可见画布 GL 上下文 + 矢量渲染器 + 字形图集 + 图层纹理缓存 + FBO 同步光栅化），以及网格/手势覆盖层/选区框/框选套索/橡皮擦光标/远端光标绘制
+  - `webglRender.ts` 新增 `drawLine`/`fillRect`/`strokeRectOutline`/`drawImageQuad`/`drawDashedPolyline`/`drawDashedRect`，新增图像 quad 着色器（premultiplied 图层位图），`begin` 拆出 `setView`（矩阵/视口不擦屏，FBO 后恢复可见矩阵用）
+  - `Canvas2D.tsx` 主画布换 WebGL：图层缓存改 GPU 纹理（`LayerCache` 不再持有 canvas），合成走 `drawImageQuad`（blend 模式 `setBlend` 映射），实时笔迹/选区/光标全上 GPU；同步光栅化 `rasterizeLayerSync` 移除，改为 `MainGL.syncRasterize`（FBO，flipY=false 统一 V=0=顶部）
+  - 字形图集翻转修正：去掉 `UNPACK_FLIP_Y`，全项目统一「V=0=图片/世界顶部」（字形/图层位图/FBO 纹理一致）
+  - 兜底：worker 仍保留「无 WebGL 回退 2D」，但主画布依赖 WebGL（现代 WebView/桌面全覆盖）；e2e 像素读回改用 `__sharecanvasCanvasData()`（WebGL readPixels + `preserveDrawingBuffer`）
+- **阶段 3（后续可选）WebGPU 后端**：renderer 已抽象（`WebGLRenderer` 为唯一 GL 依赖点），可另写 WebGPU 实现切换
+
 ---
 
 ## 优先级排序

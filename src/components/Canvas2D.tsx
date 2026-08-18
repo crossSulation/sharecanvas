@@ -14,8 +14,6 @@ import {
 import type { Doc, EraseCircle, Pt, Shape, Stroke, TextItem } from '../types'
 import {
   clamp,
-  drawGestureOverlay,
-  drawGrid,
   eraserRadius,
   findItem,
   getResizeCursor,
@@ -27,11 +25,10 @@ import {
   itemBounds,
   distToPolygon,
   PEN_CURSOR,
-  rasterizeLayerSync,
-  roundRectPath,
 } from './canvasHelpers'
 import type { AxesHandle, Interaction, ItemRef, LayerCache, RasterParams, ResizeHandle } from './canvasHelpers'
 import { axesParams } from '../lib/layerRender'
+import { MainGL, drawGridGL, drawGestureOverlayGL, drawSelectionGL, drawEraserCursorGL, drawRemoteCursorsGL } from '../lib/mainGL'
 
 // 手部防误触：触控笔抬起后，仍忽略手掌触摸的时间窗口（毫秒）
 const PALM_REJECT_MS = 600
@@ -48,6 +45,7 @@ export default function Canvas2D() {
   const dirtyLayersRef = useRef(new Set<string>())
   const lastDocRef = useRef<Doc | null>(null)
   const poolRef = useRef<WorkerPool | null>(null)
+  const mainGLRef = useRef<MainGL | null>(null)
   const inflightRef = useRef(new Set<string>())
   const pendingRasterRef = useRef(new Map<string, RasterParams>())
   const suppressInvalidationRef = useRef(false)
@@ -111,10 +109,10 @@ export default function Canvas2D() {
         (result) => {
           inflightRef.current.delete(result.layerId)
           lastRasterPathRef.current = result.path ?? '2d'
+          const mg = mainGLRef.current
           let cache = layerCacheRef.current.get(result.layerId)
           if (!cache) {
             cache = {
-              canvas: document.createElement('canvas'),
               zoom: 0,
               cam: { x: 0, y: 0 },
               width: 0,
@@ -124,16 +122,7 @@ export default function Canvas2D() {
             layerCacheRef.current.set(result.layerId, cache)
           }
           if (result.bitmap && result.width && result.height) {
-            if (cache.canvas.width !== result.width || cache.canvas.height !== result.height) {
-              cache.canvas.width = result.width
-              cache.canvas.height = result.height
-            }
-            const octx = cache.canvas.getContext('2d')
-            if (octx) {
-              octx.setTransform(1, 0, 0, 1, 0, 0)
-              octx.clearRect(0, 0, result.width, result.height)
-              octx.drawImage(result.bitmap, 0, 0)
-            }
+            mg?.uploadBitmap(result.layerId, result.bitmap, result.width, result.height)
             result.bitmap.close()
             cache.zoom = result.zoom
             cache.cam = { x: result.camX, y: result.camY }
@@ -160,26 +149,22 @@ export default function Canvas2D() {
   const draw = useCallback(() => {
     const drawStart = performance.now()
     tickFps()
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    const mg = mainGLRef.current
+    if (!mg) return
     const st = useStore.getState()
     const { w, h } = viewportRef.current
     const dpr = effectiveDpr()
     const zoom = st.camera.zoom
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, w, h)
+    const cam = st.camera
+    const halfW = w / 2 / zoom
+    const halfH = h / 2 / zoom
+    mg.beginFrame({ x0: cam.x - halfW, y0: cam.y - halfH, x1: cam.x + halfW, y1: cam.y + halfH })
 
     // 网格直接画在可见画布上（不被橡皮擦打洞）
-    ctx.save()
-    ctx.translate(w / 2 - st.camera.x * zoom, h / 2 - st.camera.y * zoom)
-    ctx.scale(zoom, zoom)
-    drawGrid(ctx, st.camera, w, h)
-    ctx.restore()
+    drawGridGL(mg.renderer, cam, w, h)
 
-    // 分层渲染：每层内容缓存为“屏幕空间位图”。
-    // 平移只做位图合成；内容变更/缩放变化/移出缓存范围时才重光栅化该层。
+    // 分层渲染：每层内容缓存为 GPU 纹理。
+    // 平移只做纹理合成；内容变更/缩放变化/移出缓存范围时才重光栅化该层。
     const layers = st.doc.layers.length
       ? st.doc.layers
       : [{ id: DEFAULT_LAYER_ID, name: '图层 1', visible: true, locked: false, opacity: 1 }]
@@ -189,28 +174,24 @@ export default function Canvas2D() {
       for (const l of layers) dirtyLayersRef.current.add(l.id)
     }
 
-    const hw = w / 2
-    const hh = h / 2
-    const halfW = hw / zoom
-    const halfH = hh / zoom
     const MARGIN = 1.4
     const itNow = interactionRef.current
     const eraseActive = itNow?.type === 'erase'
     const eraseLayer = eraseActive ? st.activeLayerId : null
 
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
     for (let i = layers.length - 1; i >= 0; i--) {
       const layer = layers[i]
       if (!layer.visible) {
         layerCacheRef.current.delete(layer.id)
+        mg.remove(layer.id)
         continue
       }
       const cache = layerCacheRef.current.get(layer.id)
       const cw = Math.max(1, Math.ceil(halfW * MARGIN * 2 * zoom * dpr))
       const ch = Math.max(1, Math.ceil(halfH * MARGIN * 2 * zoom * dpr))
       const outOfRange =
-        Math.abs(st.camera.x - (cache?.cam.x ?? Number.POSITIVE_INFINITY)) > halfW * (MARGIN - 1) ||
-        Math.abs(st.camera.y - (cache?.cam.y ?? Number.POSITIVE_INFINITY)) > halfH * (MARGIN - 1)
+        Math.abs(cam.x - (cache?.cam.x ?? Number.POSITIVE_INFINITY)) > halfW * (MARGIN - 1) ||
+        Math.abs(cam.y - (cache?.cam.y ?? Number.POSITIVE_INFINITY)) > halfH * (MARGIN - 1)
       const forceSync = eraseActive && layer.id === eraseLayer
       const needRaster =
         forceSync ||
@@ -223,27 +204,14 @@ export default function Canvas2D() {
 
       if (needRaster) {
         if (forceSync || !poolRef.current?.isAvailable) {
-          layerCacheRef.current.set(
-            layer.id,
-            rasterizeLayerSync(
-              cache,
-              st.doc,
-              layer.id,
-              layer.opacity,
-              st.camera,
-              zoom,
-              w,
-              h,
-              dpr,
-              MARGIN,
-            ),
-          )
+          mg.syncRasterize(st.doc, layer.id, layer.opacity, cam, zoom, w, h, dpr, MARGIN)
+          layerCacheRef.current.set(layer.id, { zoom, cam: { x: cam.x, y: cam.y }, width: cw, height: ch, ready: true })
         } else {
           requestRaster({
             type: 'raster',
             layerId: layer.id,
             doc: st.doc,
-            camera: { x: st.camera.x, y: st.camera.y },
+            camera: { x: cam.x, y: cam.y },
             zoom,
             viewport: { w, h },
             dpr,
@@ -255,129 +223,41 @@ export default function Canvas2D() {
       }
 
       const cached = layerCacheRef.current.get(layer.id)
-      if (cached?.ready) {
-        const dx = (cached.cam.x - halfW * MARGIN - st.camera.x) * zoom * dpr + hw * dpr
-        const dy = (cached.cam.y - halfH * MARGIN - st.camera.y) * zoom * dpr + hh * dpr
-        const prevComposite = ctx.globalCompositeOperation
-        ctx.globalCompositeOperation = (layer.blendMode || 'source-over') as GlobalCompositeOperation
-        ctx.drawImage(cached.canvas, dx, dy)
-        ctx.globalCompositeOperation = prevComposite
+      const tex = mg.textureFor(layer.id)
+      if (cached?.ready && tex) {
+        const left = cached.cam.x - halfW * MARGIN
+        const top = cached.cam.y - halfH * MARGIN
+        mg.renderer.setBlend((layer.blendMode as 'source-over' | 'multiply' | 'screen') || 'source-over')
+        mg.renderer.drawImageQuad(tex.tex, left, top, left + halfW * MARGIN * 2, top + halfH * MARGIN * 2, 1)
+        mg.renderer.setBlend('source-over')
       }
 
       // 手势覆盖层插在该层之后，保证正确 z 序（绘制中/移动中的内容）
       if (gestureLayerIdRef.current === layer.id) {
-        drawGestureOverlay(ctx, st.doc, itNow, w, h, zoom, st.camera, dpr)
+        drawGestureOverlayGL(mg.renderer, mg.atlas, st.doc, itNow, zoom * dpr)
       }
     }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     dirtyLayersRef.current.clear()
     // 清理已删除层的缓存
     if (layerCacheRef.current.size > layers.length) {
       for (const id of [...layerCacheRef.current.keys()]) {
-        if (!layers.some((l) => l.id === id)) layerCacheRef.current.delete(id)
-      }
-    }
-
-    // 选区框画在合成结果之上
-    ctx.save()
-    ctx.translate(w / 2 - st.camera.x * zoom, h / 2 - st.camera.y * zoom)
-    ctx.scale(zoom, zoom)
-    if (st.selected.length) {
-      const selBounds = getSelectionBounds(st.doc, st.selected, zoom)
-      if (selBounds) {
-        ctx.setLineDash([6 / zoom, 5 / zoom])
-        ctx.strokeStyle = '#52525b'
-        ctx.lineWidth = 1.5 / zoom
-        ctx.strokeRect(selBounds.x0, selBounds.y0, selBounds.x1 - selBounds.x0, selBounds.y1 - selBounds.y0)
-
-        const handleSize = 8 / zoom
-        const hs = handleSize / 2
-        const single = st.selected.length === 1 ? findItem(st.doc, st.selected[0]) : null
-        const axesSh = single?.kind === 'shape' && (single.item as Shape).kind === 'axes' ? single.item as Shape : null
-        const handlePts = axesSh
-          ? (() => {
-              const p = axesParams(axesSh)
-              return [
-                { x: p.px0, y: p.oy },
-                { x: p.px1, y: p.oy },
-                { x: p.ox, y: p.py0 },
-                { x: p.ox, y: p.py1 },
-                { x: p.ox, y: p.oy },
-              ]
-            })()
-          : [
-              { x: selBounds.x0, y: selBounds.y0 },
-              { x: selBounds.x1, y: selBounds.y0 },
-              { x: selBounds.x0, y: selBounds.y1 },
-              { x: selBounds.x1, y: selBounds.y1 },
-            ]
-        for (const hp of handlePts) {
-          ctx.fillStyle = '#ffffff'
-          ctx.fillRect(hp.x - hs, hp.y - hs, handleSize, handleSize)
-          ctx.strokeStyle = '#52525b'
-          ctx.lineWidth = 1.5 / zoom
-          ctx.setLineDash([])
-          ctx.strokeRect(hp.x - hs, hp.y - hs, handleSize, handleSize)
+        if (!layers.some((l) => l.id === id)) {
+          layerCacheRef.current.delete(id)
+          mg.remove(id)
         }
       }
     }
-    if (itNow?.type === 'boxselect') {
-      const x0 = Math.min(itNow.start.x, itNow.end.x)
-      const y0 = Math.min(itNow.start.y, itNow.end.y)
-      const x1 = Math.max(itNow.start.x, itNow.end.x)
-      const y1 = Math.max(itNow.start.y, itNow.end.y)
-      ctx.setLineDash([4 / zoom, 3 / zoom])
-      ctx.strokeStyle = '#3b82f6'
-      ctx.lineWidth = 2 / zoom
-      ctx.fillStyle = 'rgba(59,130,246,0.08)'
-      ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
-      ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
-    }
-    if (itNow?.type === 'lasso' && itNow.pts.length >= 2) {
-      // 自由选择套索：蓝色虚线路径（类似 PS 套索）
-      ctx.setLineDash([4 / zoom, 3 / zoom])
-      ctx.strokeStyle = '#3b82f6'
-      ctx.lineWidth = 2 / zoom
-      ctx.beginPath()
-      ctx.moveTo(itNow.pts[0].x, itNow.pts[0].y)
-      for (let i = 1; i < itNow.pts.length; i++) ctx.lineTo(itNow.pts[i].x, itNow.pts[i].y)
-      ctx.stroke()
-    }
-    ctx.restore()
+
+    // 选区框/框选/套索画在合成结果之上（世界坐标）
+    drawSelectionGL(mg.renderer, st.doc, st.selected, itNow, zoom)
 
     if (st.tool === 'eraser' && hoverRef.current) {
-      const r = eraserRadius(st.eraserSize) * zoom
-      const sp = toScreen(hoverRef.current)
-      ctx.beginPath()
-      ctx.arc(sp.x, sp.y, r, 0, Math.PI * 2)
-      ctx.fillStyle = 'rgba(0,0,0,0.04)'
-      ctx.fill()
-      ctx.strokeStyle = 'rgba(0,0,0,0.45)'
-      ctx.lineWidth = 1.2
-      ctx.stroke()
+      drawEraserCursorGL(mg.renderer, hoverRef.current, st.eraserSize, zoom)
     }
 
-    for (const u of Object.values(st.users)) {
-      if (u.id === st.selfId || !u.cursor) continue
-      const disp = remoteCursorRef.current.get(u.id) ?? u.cursor
-      const sp = toScreen(disp)
-      ctx.beginPath()
-      ctx.arc(sp.x, sp.y, 5, 0, Math.PI * 2)
-      ctx.fillStyle = u.color
-      ctx.fill()
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'
-      ctx.lineWidth = 1
-      ctx.stroke()
-      ctx.font = '11px ui-sans-serif, sans-serif'
-      const tw = ctx.measureText(u.name).width
-      ctx.fillStyle = 'rgba(0,0,0,0.65)'
-      roundRectPath(ctx, sp.x - tw / 2 - 5, sp.y - 26, tw + 10, 17, 4)
-      ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.fillText(u.name, sp.x - tw / 2, sp.y - 14)
-    }
+    drawRemoteCursorsGL(mg.renderer, mg.atlas, st.users, st.selfId, remoteCursorRef.current, zoom, zoom * dpr)
     recordDrawTime(performance.now() - drawStart)
-  }, [toScreen, requestRaster])
+  }, [requestRaster])
 
   useEffect(() => {
     drawRef.current = draw
@@ -403,6 +283,24 @@ export default function Canvas2D() {
     })
     ro.observe(container)
     return () => ro.disconnect()
+  }, [])
+
+  // 主画布 WebGL 上下文（一次性初始化，卸载时释放）
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    let mg: MainGL | null = null
+    try {
+      mg = new MainGL(canvas)
+    } catch (err) {
+      console.error('[diag] WebGL 主画布初始化失败:', err)
+    }
+    mainGLRef.current = mg
+    drawRef.current()
+    return () => {
+      mg?.dispose()
+      mainGLRef.current = null
+    }
   }, [])
 
   useEffect(() => {
@@ -448,6 +346,12 @@ export default function Canvas2D() {
       ok: pool.isAvailable,
       count: pool.workerCount,
     })
+    // e2e / 调试：读回可见画布像素（WebGL 画布无法用 getContext('2d')）
+    // 未开 preserveDrawingBuffer 时缓冲在 present 后可能被清空，读回前强制重绘一次（同步 GL 命令，同任务内读回有效）
+    ;(window as unknown as Record<string, unknown>).__sharecanvasCanvasData = () => {
+      drawRef.current()
+      return mainGLRef.current?.readPixels() ?? null
+    }
     console.log('[diag] renderer:', JSON.stringify(diag))
     // 移动端无法开控制台，把诊断信息写到 Rust 日志文件（通过 log_file_path 读取）
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1208,13 +1112,12 @@ export default function Canvas2D() {
           if (ref) layerIds.add(eff((ref.item as { layer?: string }).layer))
         }
       }
+      const mg = mainGLRef.current
       for (const id of layerIds) {
         dirtyLayersRef.current.add(id)
         const opacity = s.doc.layers.find((l) => l.id === id)?.opacity ?? 1
-        layerCacheRef.current.set(
-          id,
-          rasterizeLayerSync(
-            layerCacheRef.current.get(id),
+        if (mg) {
+          const dims = mg.syncRasterize(
             s.doc,
             id,
             opacity,
@@ -1224,8 +1127,15 @@ export default function Canvas2D() {
             viewportRef.current.h,
             effectiveDpr(),
             1.4,
-          ),
-        )
+          )
+          layerCacheRef.current.set(id, {
+            zoom: s.camera.zoom,
+            cam: { x: s.camera.x, y: s.camera.y },
+            width: dims.width,
+            height: dims.height,
+            ready: true,
+          })
+        }
       }
       drawRef.current()
     }
