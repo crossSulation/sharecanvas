@@ -1,4 +1,4 @@
-import { drawShape, drawStroke, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, axesParams, parabolaPoints, type WorldRect } from "../lib/layerRender"
+import { drawShape, drawStroke, drawStrokeLive, drawLayerContent, polygonPoints, shapeEndpoints, angleGeometry, axesGeometry, axesParams, parabolaPoints, type WorldRect } from "../lib/layerRender"
 import { DEFAULT_LAYER_ID } from "../lib/yroom"
 import type { Doc, Pt, Shape, Stroke, TextItem } from "../types"
 
@@ -104,7 +104,7 @@ export function drawGestureOverlay(
   ctx.translate(w / 2 - camera.x * zoom, h / 2 - camera.y * zoom)
   ctx.scale(zoom, zoom)
   if (it.type === 'stroke') {
-    drawStroke(ctx, it.stroke, 1)
+    drawStrokeLive(ctx, it.stroke, 1)
   } else if (it.type === 'shape') {
     const sh = doc.shapes.find((x) => x.id === it.id)
     if (sh) drawShape(ctx, sh, doc)
@@ -138,7 +138,7 @@ export function drawGestureOverlay(
 }
 
 export function eraserRadius(size: number): number {
-  return Math.max(16, size * 2)
+  return Math.max(8, size)
 }
 
 export const PEN_CURSOR_SVG =

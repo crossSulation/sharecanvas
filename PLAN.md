@@ -448,6 +448,49 @@ UPDATE_MS=500 AWARE_MS=250 node scripts/stress.mjs 50 20 30 localhost 8800
 
 ---
 
+## 移动端渲染：WebGL 升级计划（2026-08-17）
+
+### 背景与诊断
+
+Android WebView 移动端书写卡顿/断笔排查结论（真机诊断日志）：
+
+```
+workerOk=true workerCount=4 offscreenCanvas=true dpr=2.25 hardwareConcurrency=8
+fps=43 drawAvg=0.46ms drawMax=2.6ms
+```
+
+- Worker 池正常（4 个，OffscreenCanvas 可用），**不是** OffscreenCanvas 回退问题
+- `draw()` 合成极快（0.46ms，占帧预算 ~3%），**不是** GPU/canvas 光栅化瓶颈
+- 真正瓶颈是**主线程**：每个 `pointermove` 触发 `yToDoc()` 全量文档重建 + React 重渲染（WebView JIT 受限扛不住高频笔输入）
+- 次要：dpr 2.25 让软件光栅化像素量偏大；设备在 35°C 即触发 SLM 热降频（`thermal_enable_slm=true`）
+
+### 已做的优化（保持现状，先不重写）
+
+- [x] 掌触拒绝补全：`pointermove`/`pointerup`/`pointercancel` 也过滤手掌触摸（原来只有 `pointerdown`），修复手掌干扰导致断笔
+- [x] 实时笔画改折线渲染 `drawStrokeLive`（每帧 O(1)，不再每帧重算 `getStroke`），提交后再完整 freehand 光栅化
+- [x] 书写期节流 Yjs 同步（~50ms / 20Hz）+ 直接 `drawRef()` 实时渲染，抬起补最后一批点；本地帧率不受影响，协作端 20Hz 够用
+- [x] DPR 封顶 2.0（`effectiveDpr()`），光栅化像素量下降（2.25→2 减 21%）
+- [x] 笔画轮廓缓存（`strokeOutlinePath` + FNV-1a 签名 + `Path2D`），缩放/平移重光栅化时 `getStroke` 只算一次
+- [x] 橡皮擦范围独立可调（`eraserSize` 状态，8~120）
+- [x] 周期性能上报：`[perf] fps/drawAvg/drawMax` 每 2s 写 Rust 日志，移动端免开 `?debug`
+
+### WebGL 渲染层（已完成 2026-08-18）
+
+- [x] 新增 `src/lib/webglRender.ts`：WebGL 渲染器（顶点/片元着色器、世界坐标→裁剪矩阵、三角化 `triangulatePolygon`、
+  圆头线段 `strokeSegment`、混合模式 `source-over / destination-out / multiply / screen`、premultiplied alpha 合成）
+- [x] `layerRender.ts` 新增 `drawLayerContentGL`：笔画（freehand 轮廓三角化）/ 全部形状 / 橡皮擦打洞（destination-out）上 GPU；
+  层内无文字时走 WebGL，有文字仍走 2D 合成（WebGL 无内置文字）
+- [x] `render.worker.ts`：`OffscreenCanvas` 改按需获取 WebGL 上下文（独立小画布探测，避免探测失败锁定上下文类型），
+  光栅化结果经 `transferToImageBitmap` 回主线程合成
+- [x] 笔画轮廓缓存（`cachedStrokeOutline` + FNV-1a 签名，点集与 Path2D 共用），缩放/平移重光栅化只算一次 `getStroke`
+- [x] 实时笔画 `drawStrokeLive` 折线渲染（O(1)/帧）+ 书写期节流 Yjs 同步（20Hz），抬起补最后一批点
+- [x] DPR 封顶 2.0（移动端高 DPR 像素量平方放大）
+- [x] 橡皮擦大小独立调节（`eraserSize` 8~120，不再复用笔刷 size）
+- [x] 诊断/性能上报：`__sharecanvasDiag`（worker/offscreen/dpr）+ `[perf]` 每 2s 写 Rust 日志，`?debug` overlay 显示 worker 状态
+- **兜底**：WebView 不支持 WebGL/worker 时自动回退 2D 光栅化；文字层始终 2D 合成
+
+---
+
 ## 优先级排序
 
 ```

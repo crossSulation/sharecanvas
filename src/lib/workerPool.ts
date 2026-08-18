@@ -13,6 +13,7 @@ interface RasterResult {
   camX: number
   camY: number
   layerId: string
+  path?: string
 }
 
 export class WorkerPool {
@@ -81,6 +82,7 @@ export class WorkerPool {
     const msg = e.data as {
       type: string
       layerId?: string
+      path?: string
       bitmap?: ImageBitmap
       width?: number
       height?: number
@@ -103,6 +105,7 @@ export class WorkerPool {
         camX: msg.camX ?? 0,
         camY: msg.camY ?? 0,
         layerId: msg.layerId,
+        path: msg.path,
       })
     } else if (msg?.type === 'unsupported' || msg?.type === 'error') {
       this.ok = false
