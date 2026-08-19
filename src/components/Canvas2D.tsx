@@ -30,8 +30,6 @@ import type { AxesHandle, Interaction, ItemRef, LayerCache, RasterParams, Resize
 import { axesParams } from '../lib/layerRender'
 import { MainGL, drawGridGL, drawGestureOverlayGL, drawSelectionGL, drawEraserCursorGL, drawRemoteCursorsGL } from '../lib/mainGL'
 
-// 手部防误触：触控笔抬起后，仍忽略手掌触摸的时间窗口（毫秒）
-const PALM_REJECT_MS = 600
 // 移动端高 DPR 会让画布/光栅化分辨率成平方放大，Canvas 2D 软件渲染扛不住。
 // 封顶到 2，视觉几乎无损，但像素量大幅下降（如 2.25→2 减 21%，3→2 减 56%）。
 function effectiveDpr(): number {
@@ -66,7 +64,6 @@ export default function Canvas2D() {
   const pointersRef = useRef(new Map<number, { x: number; y: number; type: string }>())
   const rejectedPointersRef = useRef(new Set<number>())
   const interactionPointerRef = useRef<number | null>(null)
-  const lastPenAtRef = useRef(0)
   const interactionRef = useRef<Interaction | null>(null)
   const spaceRef = useRef(false)
   const hoverRef = useRef<Pt | null>(null)
@@ -564,7 +561,6 @@ export default function Canvas2D() {
     if (e.pointerType === 'pen') {
       const st = useStore.getState()
       st.setPenDetected(true)
-      lastPenAtRef.current = Date.now()
       // 笔落下的瞬间：如果当前手势由触摸（通常是手掌）发起，取消并回滚绘制/擦除
       const it = interactionRef.current
       const startPointer = interactionPointerRef.current
@@ -588,9 +584,9 @@ export default function Canvas2D() {
       const s = useStore.getState()
       const penDown = [...pointersRef.current.values()].some((p) => p.type === 'pen')
       const writingTool = s.tool === 'pen' || s.tool === 'highlighter' || s.tool === 'eraser'
-      const recentPen = s.penDetected && writingTool && Date.now() - lastPenAtRef.current < PALM_REJECT_MS
-      if (penDown || recentPen) {
-        // 手掌触摸：不参与绘制/平移/双指缩放
+      // 用笔场景下手指/手掌触摸一律视为误触：笔正在按下，或本设备用过笔且处于书写工具。
+      // 不再依赖时间窗口（写字间隙可能超过 600ms 导致手掌漏拒、抢占手势干扰笔）。
+      if (penDown || (s.penDetected && writingTool)) {
         rejectedPointersRef.current.add(e.pointerId)
         return
       }
@@ -757,7 +753,6 @@ export default function Canvas2D() {
     if (e.pointerType === 'touch' && rejectedPointersRef.current.has(e.pointerId)) return
     if (e.pointerType === 'pen') {
       useStore.getState().setPenDetected(true)
-      lastPenAtRef.current = Date.now()
     }
     pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType })
     const w = toWorld(e.clientX, e.clientY)
@@ -986,6 +981,7 @@ export default function Canvas2D() {
     // 掌触抬起：清理该触摸点，但不结束正在进行的笔画
     if (isPalmTouch(e)) {
       pointersRef.current.delete(e.pointerId)
+      rejectedPointersRef.current.delete(e.pointerId)
       return
     }
     pointersRef.current.delete(e.pointerId)
